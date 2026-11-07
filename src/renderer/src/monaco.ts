@@ -34,6 +34,25 @@ export function setTypeLibs(libs: TypeLib[]): void {
   ts.javascriptDefaults.setExtraLibs(extra)
 }
 
+let packageNames: string[] = []
+/** Installed package names, offered while typing an import path (the TS worker cannot list node_modules). */
+export function setPackageNames(names: string[]): void {
+  packageNames = names
+}
+for (const language of ['typescript', 'javascript']) {
+  monaco.languages.registerCompletionItemProvider(language, {
+    triggerCharacters: ["'", '"'],
+    provideCompletionItems(model, position) {
+      const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
+      const m = /(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s*|\brequire\s*\(\s*)['"]([^'"]*)$/.exec(before)
+      if (!m) return { suggestions: [] }
+      const range = new monaco.Range(position.lineNumber, position.column - m[1].length, position.lineNumber, position.column)
+      const kind = monaco.languages.CompletionItemKind.Module
+      return { suggestions: packageNames.map((name) => ({ label: name, kind, insertText: name, range, detail: 'Installed package' })) }
+    }
+  })
+}
+
 // Graphite syntax colors, same as design/scriptty-graphite.html (git show 42ffcb3).
 monaco.editor.defineTheme('graphite-light', {
   base: 'vs',
@@ -93,6 +112,8 @@ export function createEditor(el: HTMLElement): monaco.editor.IStandaloneCodeEdit
     automaticLayout: true,
     renderLineHighlight: 'line',
     overviewRulerLanes: 0,
+    // Hover and suggest boxes escape the editor's overflow: hidden box (a hover on line 1 was cut off by the tab bar).
+    fixedOverflowWidgets: true,
     scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 }
   })
   applyTheme()

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import type { PackageInfo } from '../../shared/protocol'
   import PackageDetails from './PackageDetails.svelte'
+  import { setPackageNames } from './monaco'
 
   let { onchange, oninsert }: { onchange: () => void; oninsert: (importLine: string) => void } = $props()
 
@@ -14,6 +15,7 @@
 
   const refresh = async (): Promise<void> => {
     list = await window.scriptty.packages.list()
+    setPackageNames(list.map((p) => p.name))
   }
   onMount(refresh)
 

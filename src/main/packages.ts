@@ -23,6 +23,22 @@ const httpsOnly = (u: unknown): string => (typeof u === 'string' && /^https?:\/\
 const identifierFor = (name: string): string =>
   (name.split('/').pop() ?? name).replace(/[^\w$]+(\w)/g, (_m, c: string) => c.toUpperCase()).replace(/^[^a-zA-Z_$]/, '_$&')
 
+/** `lodash@4` -> `lodash`, `@scope/x@^1` -> `@scope/x`. */
+const nameOf = (spec: string): string => spec.replace(/(.)@.*$/, '$1')
+
+/** The DefinitelyTyped package for `name`: `@types/lodash`, `@types/scope__x`. */
+const typesPackageOf = (name: string): string => `@types/${name.replace(/^@([^/]+)\//, '$1__')}`
+
+/** Absolute path of the declaration file a package folder points to, if it has one. */
+function typesEntryIn(dir: string): string | undefined {
+  try {
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    return [pkg.types, pkg.typings, 'index.d.ts'].map((f) => (typeof f === 'string' ? join(dir, f) : '')).find((f) => f && existsSync(f))
+  } catch {
+    return undefined
+  }
+}
+
 /** One shared package environment, installed with the bundled bun (decision 9). */
 export class Packages {
   constructor(
@@ -38,14 +54,29 @@ export class Packages {
       .map((name) => ({ name, version: this.installedVersion(name) ?? deps[name] }))
   }
 
-  add(spec: string): Promise<Result> {
-    if (!isValidSpec(spec)) return Promise.resolve({ ok: false, error: `"${spec}" is not a valid package name` })
-    return this.bunCmd(['add', spec])
+  async add(spec: string): Promise<Result> {
+    if (!isValidSpec(spec)) return { ok: false, error: `"${spec}" is not a valid package name` }
+    const r = await this.bunCmd(['add', spec])
+    // Untyped package: try DefinitelyTyped so the editor can autocomplete it. Best effort, many have none.
+    // A dev dependency, so it stays out of the package list.
+    if (r.ok && this.typesOf(nameOf(spec)).kind === 'none') await this.bunCmd(['add', '--dev', typesPackageOf(nameOf(spec))])
+    return r
   }
 
-  remove(name: string): Promise<Result> {
-    if (!isValidSpec(name)) return Promise.resolve({ ok: false, error: `"${name}" is not a valid package name` })
-    return this.bunCmd(['remove', name])
+  async remove(name: string): Promise<Result> {
+    if (!isValidSpec(name)) return { ok: false, error: `"${name}" is not a valid package name` }
+    const r = await this.bunCmd(['remove', name])
+    const typesPackage = typesPackageOf(name)
+    if (r.ok && typesPackage in (this.manifest().devDependencies ?? {})) await this.bunCmd(['remove', typesPackage])
+    return r
+  }
+
+  /** Where a package's declarations come from: its own files, its @types package, or nowhere. */
+  private typesOf(name: string): { kind: PackageDetails['types']; entry?: string } {
+    const own = typesEntryIn(join(this.dir, 'node_modules', name))
+    if (own) return { kind: 'bundled', entry: own }
+    const fromTypes = typesEntryIn(join(this.dir, 'node_modules', typesPackageOf(name)))
+    return fromTypes ? { kind: '@types', entry: fromTypes } : { kind: 'none' }
   }
 
   /** What the package panel shows when a package is clicked. Reads only files inside node_modules/<name>. */
@@ -53,9 +84,8 @@ export class Packages {
     if (!isValidSpec(name) || !(name in (this.manifest().dependencies ?? {}))) throw new Error(`${name} is not installed`)
     const dir = join(this.dir, 'node_modules', name)
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    const typesEntry = [pkg.types, pkg.typings, 'index.d.ts'].find((f) => typeof f === 'string' && existsSync(join(dir, f)))
-    const types = typesEntry ? 'bundled' : existsSync(join(this.dir, 'node_modules/@types', name.replace(/^@([^/]+)\//, '$1__'))) ? '@types' : 'none'
-    const typesText = typesEntry ? readFileSync(join(dir, typesEntry), 'utf8') : ''
+    const { kind: types, entry: typesEntry } = this.typesOf(name)
+    const typesText = typesEntry ? readFileSync(typesEntry, 'utf8') : ''
     const id = identifierFor(name)
     // Default import when the types say there is one (or for untyped CJS, which bun default-imports fine).
     const importLine = /export\s+default|export\s*=/.test(typesText) || types === 'none' ? `import ${id} from "${name}"` : `import * as ${id} from "${name}"`
@@ -102,6 +132,9 @@ export class Packages {
     // Bundled @types/node, so `node:fs` and friends type-check (bun implements them). A user-installed copy wins.
     if (nodeTypes && existsSync(nodeTypes) && !existsSync(join(nm, '@types/node'))) walk(nodeTypes, '@types/node')
     if (!existsSync(nm)) return libs
+    // Packages with no declarations at all import as `any`, instead of "Cannot find module".
+    const untyped = Object.keys(this.manifest().dependencies ?? {}).filter((name) => this.typesOf(name).kind === 'none')
+    if (untyped.length) libs.push({ path: 'file:///node_modules/@scriptty/untyped.d.ts', content: untyped.map((n) => `declare module ${JSON.stringify(n)};`).join('\n') })
     for (const e of readdirSync(nm, { withFileTypes: true })) {
       if (!e.isDirectory() || e.name.startsWith('.')) continue
       const names = e.name.startsWith('@') ? readdirSync(join(nm, e.name)).map((n) => `${e.name}/${n}`) : [e.name]
@@ -110,7 +143,7 @@ export class Packages {
     return libs
   }
 
-  private manifest(): { dependencies?: Record<string, string> } {
+  private manifest(): { dependencies?: Record<string, string>; devDependencies?: Record<string, string> } {
     try {
       return JSON.parse(readFileSync(join(this.dir, 'package.json'), 'utf8'))
     } catch {
