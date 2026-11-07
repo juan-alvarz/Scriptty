@@ -29,8 +29,11 @@ Done (layout, bundle, imports, 2026-11-07):
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
+Done (scratch location, 2026-11-07):
+- `import.meta.dir`, `dirname`, `file`, `filename`, `path`, `url`, `__dirname` and `__filename` in a scratch describe the scratch file, not the instrumented copy in the packages folder's `.runs` (decision 17). `import.meta.main` and `require.main === module` are true, as when running the file directly. Windows paths are escaped literals; `url` is a proper `file://` URL.
+
 Not done yet:
-- `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
+- Scratch location gaps: destructured or passed-around `import.meta` (`const { dir } = import.meta`), `import.meta.resolve`, relative `require("./x")`, `require.main.filename` and `Bun.main` still describe the run copy or the runner host.
 - README in package details is plain text, not rendered Markdown.
 - Tabs cannot be reordered by dragging yet.
 - `Bun.*` globals have no editor types (add `bun-types` the same way as `@types/node`).
@@ -60,6 +63,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | Scratch location via **literals at instrumentation** | Runs execute a copy in `.runs`, so bun's own `import.meta.dir` / `__dirname` point there. The instrumenter already parses the AST, so it replaces those reads with string literals of the real path at no cost and without adding lines. Names the scratch declares or assigns anywhere are left alone, instead of doing scope analysis. Running the copy next to the scratch was the alternative; it would litter the user's folder and show up in their tools. | 2026-11-07 |
 
 ## Electron on macOS and Windows
 

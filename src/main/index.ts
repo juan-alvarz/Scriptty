@@ -113,9 +113,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('run', async (_e, code: string, rel: string): Promise<RunResponse> => {
     try {
       const ext = extname(rel) || '.ts'
-      const dir = dirname(workspace.abs(rel))
+      const abs = workspace.abs(rel)
+      const dir = dirname(abs)
       // shortcut: instruments on the main thread; move to a worker_thread if large files stall IPC.
-      const r = instrument(code, 'scratch' + ext, dir)
+      // The real path lets import.meta.dir, __dirname and friends point at the scratch, not at `runs`.
+      const r = instrument(code, abs, dir)
       if (!r.ok) return r
       const runId = ++seq
       const file = join(runs, `run-${runId}${ext}`)
