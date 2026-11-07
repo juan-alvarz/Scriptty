@@ -1,0 +1,456 @@
+<title>Scriptty Graphite</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one desktop app window (live), settings opens as a sheet inside it; brand sheet and v1 scope below. */
+:root{
+  --bg:#F2F3F5; --fg:#15171B; --muted:#5B6270; --line:#D9DCE2; --card:#FFFFFF; --accent:#2F5BEA;
+  --ui:"Hanken Grotesk",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0F1114;--fg:#E6E8EC;--muted:#959CA8;--line:#262A31;--card:#16191E;--accent:#8AA4FF;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0F1114;--fg:#E6E8EC;--muted:#959CA8;--line:#262A31;--card:#16191E;--accent:#8AA4FF;color-scheme:dark}
+
+body{background:var(--bg);color:var(--fg);font-family:var(--ui);font-size:15px;line-height:1.5}
+.wrap{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:36px 64px;display:grid;gap:24px}
+.head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:12px}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-size:34px;line-height:1.1;margin:8px 0 6px;font-weight:600;letter-spacing:-.02em}
+.lede{margin:0;max-width:66ch;color:var(--muted)}
+.hint{font:12px/1.4 var(--mono);color:var(--muted)}
+/* desktop-only mock: scrolls sideways in its own box instead of reflowing */
+.stage{overflow-x:auto;padding:4px 2px 30px}
+.sheet{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;display:grid;gap:12px;align-content:start;min-width:0}
+.card h3{margin:0;font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tile{border-radius:10px;padding:22px 18px;display:flex;align-items:center;gap:14px;background:#2A2D33}
+.tile svg{width:52px;height:52px}
+.wm{font:600 28px var(--ui);letter-spacing:-.02em;color:#FBFBFC}
+.icons{display:flex;gap:10px;align-items:end}
+.pal{display:grid;gap:6px}
+.sw{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;font-size:13px}
+.sw i{height:26px;border-radius:6px;border:1px solid rgba(127,127,127,.25)}
+.sw code{font:12px var(--mono);color:var(--muted)}
+.card ul{margin:0;padding-left:18px;display:grid;gap:4px;font-size:13.5px}
+.card p{margin:0;font-size:13.5px;color:var(--muted)}
+.later{color:var(--muted)}
+
+/* ---------- Graphite app ---------- */
+.app{
+  --a-bg:#FBFBFC;--a-side:#EEF0F3;--a-panel:#F5F6F8;--a-fg:#1C1F24;--a-muted:#7A808B;--a-line:#E1E4E8;--a-accent:#2F5BEA;--a-on-accent:#FFFFFF;
+  --a-val:#2F5BEA;--a-log:#5E6573;--a-warn:#B7791F;--a-err:#D63B3B;--a-sel:rgba(47,91,234,.16);--a-field:#FFFFFF;--a-scrim:rgba(20,22,26,.28);
+  --k:#9B2F8A;--s:#1F7A4D;--n:#B35A00;--c:#9AA0A9;--f:#2F5BEA;--t:#0F7C8C;
+  --a-fs:13px;--a-lh:20px;
+  position:relative;min-width:960px;height:640px;font-family:var(--ui);color:var(--a-fg);background:var(--a-bg);border-radius:12px;overflow:hidden;
+  display:flex;flex-direction:column;border:1px solid var(--a-line);box-shadow:0 1px 2px rgba(10,20,40,.06),0 30px 60px -30px rgba(10,20,40,.45);font-size:13px;
+}
+.app[data-mode="dark"]{
+  --a-bg:#1C1E22;--a-side:#24262B;--a-panel:#191B1F;--a-fg:#E4E6EA;--a-muted:#8A909B;--a-line:#30333A;--a-accent:#6E8EFF;--a-on-accent:#0E1220;
+  --a-val:#9DB3FF;--a-log:#A6ACB6;--a-err:#FF6B6B;--a-sel:rgba(110,142,255,.22);--a-field:#2A2D33;--a-scrim:rgba(0,0,0,.45);
+  --k:#E28AD3;--s:#8FD6A6;--n:#F3B26A;--c:#6B717C;--f:#9DB3FF;--t:#6FD0DC}
+.tb{height:40px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--a-line);background:var(--a-side);font-size:12.5px}
+.lights{display:flex;gap:8px;margin-right:6px}
+.lights i{width:12px;height:12px;border-radius:50%;background:#FF5F57}
+.lights i:nth-child(2){background:#FEBC2E}.lights i:nth-child(3){background:#28C840}
+.tb-title b{font-weight:600}.tb-title span{color:var(--a-muted)}
+.sp{flex:1}
+.tbtn{font:inherit;font-size:12px;color:var(--a-fg);background:transparent;border:1px solid var(--a-line);border-radius:6px;padding:3px 9px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.tbtn[aria-pressed="true"]{background:var(--a-accent);border-color:var(--a-accent);color:var(--a-on-accent)}
+.tbtn svg{width:14px;height:14px}
+.tbtn:focus-visible,.it:focus-visible,.snav button:focus-visible,.seg button:focus-visible,.app select:focus-visible,.app input:focus-visible,.addpkg:focus-visible{outline:2px solid var(--a-accent);outline-offset:1px}
+.body{flex:1;min-height:0;display:grid;grid-template-columns:200px minmax(0,1.35fr) minmax(0,1fr)}
+.side{background:var(--a-side);border-right:1px solid var(--a-line);padding:14px 10px;overflow:auto;font-size:12.5px;display:flex;flex-direction:column;gap:16px}
+.side h5{margin:0 0 6px 8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--a-muted);font-weight:600}
+.it{width:100%;font:inherit;color:inherit;background:none;border:0;text-align:left;padding:4px 8px;border-radius:6px;display:flex;justify-content:space-between;gap:8px;white-space:nowrap;cursor:default}
+.it.on{background:var(--a-sel);font-weight:600}
+.it span:last-child{color:var(--a-muted);font-family:var(--mono);font-size:11px}
+.addpkg{margin:4px 0 0;width:100%;box-sizing:border-box;font:12px var(--mono);color:var(--a-fg);background:var(--a-field);border:1px solid var(--a-line);border-radius:6px;padding:5px 8px}
+.side .gear{margin-top:auto}
+.ed{display:grid;grid-template-columns:auto minmax(0,1fr);min-height:0;min-width:0}
+.nums{padding:14px 8px 80px 14px;overflow:hidden;font-family:var(--mono);font-size:var(--a-fs);line-height:var(--a-lh);color:var(--a-muted);text-align:right;user-select:none;opacity:.7;min-width:2.6em}
+.nums .has{color:var(--a-accent);opacity:1}.nums .err{color:var(--a-err)}
+.cw{position:relative;min-width:0;min-height:0}
+.cw:focus-within{box-shadow:inset 2px 0 0 var(--a-accent)}
+.cw pre,.cw textarea{position:absolute;inset:0;margin:0;padding:14px 16px 40px;border:0;outline:0;background:transparent;font-family:var(--mono);font-size:var(--a-fs);line-height:var(--a-lh);font-weight:400;letter-spacing:0;white-space:pre;tab-size:2;overflow:auto;box-sizing:border-box;width:100%;height:100%}
+.cw pre{color:var(--a-fg);pointer-events:none;overflow:hidden}
+.cw textarea{color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--a-accent);resize:none}
+.cw textarea::selection{background:var(--a-sel)}
+.tk{color:var(--k)}.ts{color:var(--s)}.tn{color:var(--n)}.tc{color:var(--c);font-style:italic}.tf{color:var(--f)}.tt{color:var(--t)}
+.v{color:var(--a-val)}.log{color:var(--a-log)}.warn{color:var(--a-warn)}.error{color:var(--a-err)}
+.sep{color:var(--a-muted);opacity:.6}
+.stale .res{opacity:.45}
+.res{overflow:hidden;border-left:1px solid var(--a-line);background:var(--a-panel);padding:14px 0 0;font-family:var(--mono);font-size:var(--a-fs);line-height:var(--a-lh);min-width:0}
+.res .row{height:var(--a-lh);padding:0 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res .row.err{background:color-mix(in srgb,var(--a-err) 12%,transparent)}
+.res .pad{height:80px}
+.sb{height:26px;flex:none;display:flex;align-items:center;gap:14px;padding:0 12px;border-top:1px solid var(--a-line);background:var(--a-side);font-size:11.5px;color:var(--a-muted);white-space:nowrap}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2BB673;margin-right:6px;vertical-align:1px}
+.dot.off{background:var(--a-err)}.dot.busy{background:var(--a-warn)}
+
+/* ---------- Settings sheet ---------- */
+.set{position:absolute;inset:0;background:var(--a-scrim);display:grid;place-items:center;z-index:5}
+.swin{width:680px;height:460px;background:var(--a-bg);border:1px solid var(--a-line);border-radius:12px;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);display:grid;grid-template-rows:auto 1fr;overflow:hidden}
+.stb{height:38px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--a-line);background:var(--a-side)}
+.stb b{position:absolute;left:50%;transform:translateX(-50%);font-size:13px}
+.stb .lights i:first-child{cursor:pointer}
+.sbody{display:grid;grid-template-columns:180px 1fr;min-height:0}
+.snav{background:var(--a-side);border-right:1px solid var(--a-line);padding:10px 8px;display:flex;flex-direction:column;gap:2px}
+.snav button{font:inherit;color:inherit;background:none;border:0;text-align:left;padding:6px 10px;border-radius:6px;display:flex;align-items:center;gap:8px;cursor:pointer}
+.snav button[aria-selected="true"]{background:var(--a-sel);font-weight:600}
+.snav svg{width:15px;height:15px;flex:none;color:var(--a-muted)}
+.badge{margin-left:auto;font:500 10px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--a-muted);border:1px solid var(--a-line);border-radius:4px;padding:1px 5px}
+.spane{padding:20px 24px;overflow:auto}
+.spane h4{margin:0 0 14px;font-size:15px;font-weight:600}
+.grp{border:1px solid var(--a-line);border-radius:10px;background:var(--a-panel)}
+.srow{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 14px;border-top:1px solid var(--a-line)}
+.srow:first-child{border-top:0}
+.srow label,.srow .lbl{font-weight:500}
+.srow small{display:block;color:var(--a-muted);font-size:11.5px;font-weight:400;margin-top:1px}
+.app select,.app input[type="number"]{font:inherit;color:var(--a-fg);background:var(--a-field);border:1px solid var(--a-line);border-radius:6px;padding:4px 8px}
+.app input[type="number"]{width:64px}
+.seg{display:inline-flex;border:1px solid var(--a-line);border-radius:7px;overflow:hidden;background:var(--a-field)}
+.seg button{font:inherit;font-size:12px;color:var(--a-fg);background:none;border:0;padding:4px 10px;cursor:pointer;border-left:1px solid var(--a-line)}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed="true"]{background:var(--a-accent);color:var(--a-on-accent)}
+.tog{appearance:none;-webkit-appearance:none;width:34px;height:20px;border-radius:10px;background:var(--a-line);position:relative;cursor:pointer;flex:none;margin:0}
+.tog::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.tog:checked{background:var(--a-accent)}
+.tog:checked::after{transform:translateX(14px)}
+.tog:focus-visible{outline:2px solid var(--a-accent);outline-offset:2px}
+.note{margin:12px 2px 0;color:var(--a-muted);font-size:12px}
+.team .grp{opacity:.6}
+.team button[disabled]{font:inherit;font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--a-line);background:var(--a-field);color:var(--a-muted)}
+@media (prefers-reduced-motion:reduce){.tog::after{transition:none}}
+</style>
+
+<script type="text/plain" id="sample">
+// Results update as you type. Try editing a number.
+interface User { name: string; age: number }
+
+const users: User[] = [
+  { name: "Ada", age: 36 },
+  { name: "Linus", age: 28 },
+  { name: "Grace", age: 45 },
+]
+
+users.length
+users.map(u => u.name)
+users.filter(u => u.age > 30).length
+
+const avg = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
+avg(users.map(u => u.age)).toFixed(1)
+
+console.log("oldest:", [...users].sort((a, b) => b.age - a.age)[0].name)
+
+new Map(users.map(u => [u.name, u.age]))
+await new Promise(r => setTimeout(() => r("resolved after 400ms"), 400))
+users[3].name
+</script>
+
+<div class="wrap">
+  <div class="head">
+    <div>
+      <div class="eyebrow">Scriptty · Graphite · v1 direction</div>
+      <h1>Scriptty, Graphite</h1>
+      <p class="lede">A native scratchpad that runs TypeScript and JavaScript as you type and installs packages. This window is live. Open Settings with the gear or ⌘/Ctrl + comma.</p>
+    </div>
+    <div class="hint">⌘/Ctrl + Enter runs · Esc then Tab leaves the editor</div>
+  </div>
+
+  <div class="stage">
+    <div class="app" id="app" data-mode="light">
+      <div class="tb">
+        <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="tb-title"><b>scratch.ts</b> <span>— Scriptty</span></span>
+        <span class="sp"></span>
+        <button class="tbtn" data-act="auto" aria-pressed="true">Auto-run</button>
+        <button class="tbtn" data-act="run">Run ⌘↵</button>
+        <button class="tbtn" data-act="settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+      </div>
+      <div class="body">
+        <aside class="side">
+          <div><h5>Scratches</h5>
+            <button class="it on"><span>scratch.ts</span><span>live</span></button>
+            <button class="it"><span>fetch-users.ts</span><span>2d</span></button>
+            <button class="it"><span>regex-lab.js</span><span>5d</span></button>
+            <button class="it"><span>dates.ts</span><span>1w</span></button>
+          </div>
+          <div><h5>Packages</h5>
+            <div id="pkgs"></div>
+            <input class="addpkg" id="addpkg" placeholder="Add package…" aria-label="Add package by name" autocomplete="off" spellcheck="false">
+          </div>
+        </aside>
+        <div class="ed">
+          <div class="nums" aria-hidden="true"></div>
+          <div class="cw"><pre aria-hidden="true"></pre><textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Code editor"></textarea></div>
+        </div>
+        <div class="res" id="res" aria-label="Results"></div>
+      </div>
+      <div class="sb"><span id="live"></span><span id="info"></span><span class="sp"></span><span id="lang">TypeScript</span><span>Spaces: 2</span></div>
+
+      <div class="set" id="set" role="dialog" aria-modal="true" aria-label="Settings" hidden>
+        <div class="swin">
+          <div class="stb"><span class="lights"><i data-act="close" title="Close" role="button" aria-label="Close settings" tabindex="0"></i><i></i><i></i></span><b>Settings</b></div>
+          <div class="sbody">
+            <nav class="snav" role="tablist" aria-label="Settings sections">
+              <button role="tab" data-tab="general" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>General</button>
+              <button role="tab" data-tab="editor" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg>Editor</button>
+              <button role="tab" data-tab="runtime" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4l14 8-14 8z"/></svg>Runtime</button>
+              <button role="tab" data-tab="team" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14c2.4 0 4 1.6 4.5 4.5"/></svg>Account &amp; team<span class="badge">Later</span></button>
+            </nav>
+            <div class="spane">
+              <section data-pane="general"><h4>General</h4>
+                <div class="grp">
+                  <div class="srow"><span class="lbl">Appearance</span>
+                    <span class="seg" id="appearance"><button data-v="system" aria-pressed="true">System</button><button data-v="light" aria-pressed="false">Light</button><button data-v="dark" aria-pressed="false">Dark</button></span></div>
+                  <div class="srow"><label for="s-login">Open at login</label><input type="checkbox" class="tog" id="s-login"></div>
+                  <div class="srow"><label for="s-restore">Reopen last scratches<small>Restore open files on launch</small></label><input type="checkbox" class="tog" id="s-restore" checked></div>
+                </div></section>
+              <section data-pane="editor" hidden><h4>Editor</h4>
+                <div class="grp">
+                  <div class="srow"><label for="s-font">Font size</label><select id="s-font"><option>12</option><option selected>13</option><option>14</option><option>16</option></select></div>
+                  <div class="srow"><label for="s-tab">Tab size</label><select id="s-tab"><option selected>2</option><option>4</option></select></div>
+                  <div class="srow"><label for="s-auto">Run as you type<small>Off means ⌘↵ runs the file</small></label><input type="checkbox" class="tog" id="s-auto" checked></div>
+                  <div class="srow"><label for="s-delay">Run after a pause of<small>Milliseconds after the last keystroke</small></label><input type="number" id="s-delay" value="260" min="0" max="2000" step="20"></div>
+                </div></section>
+              <section data-pane="runtime" hidden><h4>Runtime</h4>
+                <div class="grp">
+                  <div class="srow"><label for="s-lang">New scratches use</label><select id="s-lang"><option selected>TypeScript</option><option>JavaScript</option></select></div>
+                  <div class="srow"><label for="s-timeout">Stop code that freezes for<small>Seconds without a response. Servers and timers keep running.</small></label><input type="number" id="s-timeout" value="5" min="1" max="120"></div>
+                  <div class="srow"><label for="s-env">Load .env from the scratch folder</label><input type="checkbox" class="tog" id="s-env"></div>
+                </div></section>
+              <section data-pane="team" class="team" hidden><h4>Account &amp; team</h4>
+                <div class="grp" aria-disabled="true">
+                  <div class="srow"><span class="lbl">Account<small>Not signed in</small></span><button disabled>Sign in</button></div>
+                  <div class="srow"><span class="lbl">Workspace<small>Share scratches with your team</small></span><button disabled>Create</button></div>
+                  <div class="srow"><span class="lbl">Members and roles</span><button disabled>Manage</button></div>
+                  <div class="srow"><span class="lbl">Shared packages and env<small>One setup for everyone in the workspace</small></span><button disabled>Configure</button></div>
+                </div>
+                <p class="note">Not in v1. This section holds the place so team features can arrive without reshaping Settings.</p></section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet">
+    <div class="card"><h3>Identity</h3>
+      <div class="tile"><span id="mark"></span><span class="wm">Scriptty</span></div>
+      <div class="icons" id="icons"></div>
+      <p><b>Voice.</b> Plain labels, sentence case, no exclamation marks.</p></div>
+    <div class="card"><h3>Palette</h3><div class="pal" id="pal"></div></div>
+    <div class="card"><h3>Type</h3>
+      <div style="font:600 40px/1 var(--ui)">Aa Run</div><p style="font-family:var(--mono);font-size:12px">Hanken Grotesk · interface</p>
+      <div style="font:14px var(--mono)">users.map(u =&gt; u.name)</div><p style="font-family:var(--mono);font-size:12px">JetBrains Mono · code</p></div>
+    <div class="card"><h3>v1 scope</h3>
+      <ul><li>Run TS and JS live, results beside each line</li><li>Install packages per scratch</li><li>Scratch files in the sidebar</li><li>Settings: general, editor, runtime</li><li class="later">Later: account and team</li></ul></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const MARK = `<svg viewBox="0 0 48 48"><rect x="2" y="2" width="44" height="44" rx="12" fill="#2A2D33"/><path d="M15 16l9 8-9 8" stroke="#FBFBFC" stroke-width="3.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="33" cy="31" r="3.6" fill="#2F5BEA"/></svg>`;
+$("#mark").innerHTML = MARK;
+$("#icons").innerHTML = [40, 28, 18].map(s => MARK.replace("<svg ", `<svg width="${s}" height="${s}" `)).join("");
+$("#pal").innerHTML = [["Graphite", "#2A2D33"], ["Cobalt", "#2F5BEA"], ["Mist", "#EEF0F3"], ["Paper", "#FBFBFC"], ["Night", "#1C1E22"], ["Signal red", "#D63B3B"]]
+  .map(([n, h]) => `<div class="sw"><i style="background:${h}"></i><span>${n}</span><code>${h}</code></div>`).join("");
+
+/* ---------- Engine: strip TS, instrument top-level lines, run ---------- */
+// shortcut: regex TS stripping handles common annotations only; the app uses a real compiler (esbuild/swc).
+const TYPE = "(?:string|number|boolean|any|unknown|void|never|object|bigint|[A-Z][\\w$]*)(?:<[^<>]*>)?(?:\\[\\])*";
+const ANNOT = new RegExp("([\\w$)\\]])\\s*\\??:\\s*" + TYPE + "(?:\\s*\\|\\s*" + TYPE + ")*(?=\\s*(?:[=,);{]|$))", "gm");
+function stripTS(src) {
+  const blank = m => m.replace(/[^\n]/g, "");
+  return src
+    .replace(/^[ \t]*(?:export\s+)?interface\s+[\w$]+[^{]*\{[^}]*\}/gm, blank)
+    .replace(/^[ \t]*(?:export\s+)?type\s+[\w$]+(?:<[^>]*>)?\s*=[^\n;]*;?/gm, blank)
+    .replace(ANNOT, "$1")
+    .replace(/\s+as\s+(?:const|[A-Za-z_$][\w$]*(?:<[^<>]*>)?(?:\[\])*)/g, "");
+}
+const SKIP = /^(?:const|let|var|function|async\s+function|class|if|else|for|while|do|return|import|export|try|catch|finally|switch|case|default|throw|break|continue)\b|^[}\])]|^\/[/*]|^\*/;
+function balanced(s) {
+  s = s.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '""');
+  let d = 0;
+  for (const ch of s) { if ("([{".includes(ch)) d++; else if (")]}".includes(ch) && --d < 0) return false; }
+  return d === 0;
+}
+function instrument(lines) {
+  return lines.map((l, i) => {
+    const out = l.replace(/console\.(log|info|warn|error|table)\(/g, `__log(${i},"$1",`);
+    const t = l.trim();
+    if (!t || /^\s/.test(l) || SKIP.test(t) || /^console\./.test(t)) return out;
+    if (/[{[(,=+\-*/&|?:.]$/.test(t.replace(/;$/, ""))) return out;
+    if (lines[i + 1] && /^\s*\??\./.test(lines[i + 1])) return out;
+    if (!balanced(t)) return out;
+    return `__r(${i}, (__s.at=${i}, ${out.trim().replace(/;$/, "")}));`;
+  });
+}
+function fmt(v, d = 0) {
+  if (v === undefined) return "undefined";
+  if (v === null) return "null";
+  const t = typeof v;
+  if (t === "string") return JSON.stringify(v);
+  if (t === "number" || t === "boolean") return String(v);
+  if (t === "bigint") return v + "n";
+  if (t === "symbol") return v.toString();
+  if (t === "function") return `ƒ ${v.name || "anonymous"}()`;
+  if (v instanceof Error) return `${v.name}: ${v.message}`;
+  if (v instanceof Date) return v.toISOString();
+  if (v instanceof RegExp) return String(v);
+  if (typeof v.then === "function") return "Promise { <pending> }";
+  if (d > 2) return Array.isArray(v) ? "[…]" : "{…}";
+  if (Array.isArray(v)) return "[" + v.slice(0, 20).map(x => fmt(x, d + 1)).join(", ") + (v.length > 20 ? `, …${v.length - 20} more` : "") + "]";
+  if (v instanceof Map) return `Map(${v.size}) {` + [...v].slice(0, 10).map(([k, x]) => fmt(k, d + 1) + " => " + fmt(x, d + 1)).join(", ") + "}";
+  if (v instanceof Set) return `Set(${v.size}) {` + [...v].slice(0, 10).map(x => fmt(x, d + 1)).join(", ") + "}";
+  const keys = Object.keys(v), name = v.constructor && v.constructor !== Object ? v.constructor.name + " " : "";
+  return keys.length ? name + "{ " + keys.slice(0, 12).map(k => k + ": " + fmt(v[k], d + 1)).join(", ") + (keys.length > 12 ? ", …" : "") + " }" : name + "{}";
+}
+const fmtMs = ms => ms < 0.01 ? "<0.01ms" : ms < 10 ? ms.toFixed(2) + "ms" : Math.round(ms) + "ms";
+const KW = new Set("const let var function return if else for while of in new await async class extends import export from typeof instanceof true false null undefined this interface type as try catch throw switch case break continue default void yield".split(" "));
+const TOK = /(\/\/.*$)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|`(?:[^`\\]|\\.)*`?)|(\b\d[\d_]*(?:\.\d+)?n?\b)|([A-Za-z_$][\w$]*)|([\s\S])/g;
+function hl(line) {
+  let out = "", m;
+  TOK.lastIndex = 0;
+  while ((m = TOK.exec(line))) {
+    if (m[1]) out += `<span class="tc">${esc(m[1])}</span>`;
+    else if (m[2]) out += `<span class="ts">${esc(m[2])}</span>`;
+    else if (m[3]) out += `<span class="tn">${m[3]}</span>`;
+    else if (m[4]) {
+      const w = m[4], cls = KW.has(w) ? "tk" : /^\s*\(/.test(line.slice(TOK.lastIndex)) ? "tf" : /^[A-Z]/.test(w) ? "tt" : "";
+      out += cls ? `<span class="${cls}">${w}</span>` : w;
+    } else out += esc(m[5]);
+  }
+  return out;
+}
+(function selfTest() {
+  const s = stripTS("const xs: number[] = [1]\ninterface A { a: string }\nconst f = (a: string, b: Foo<T>): number => 1");
+  console.assert(s.split("\n").length === 3 && !/number|string|Foo/.test(s), "stripTS", s);
+  const ins = instrument(["1 + 1", "const a = 1", "  a", "console.log(a)", "[1,", "2]"]);
+  console.assert(ins[0] === "__r(0, (__s.at=0, 1 + 1));" && ins[1] === "const a = 1" && ins[2] === "  a" && ins[3].startsWith("__log(3") && ins[4] === "[1,", "instrument", ins);
+})();
+
+let OFFSET = null;
+const STACK_LINE = /(?:<anonymous>|Function):(\d+):\d+/;
+async function probe() {
+  try { await new Function('return (async()=>{\nthrow new Error("probe")\n})()')(); }
+  catch (e) { const m = String(e.stack || "").match(STACK_LINE); if (m) OFFSET = +m[1]; }
+}
+
+/* ---------- App ---------- */
+const app = $("#app"), ta = $("#code"), pre = $(".cw pre"), nums = $(".nums"), resEl = $("#res"), setEl = $("#set");
+const SAMPLE = $("#sample").textContent.replace(/^\n/, "").replace(/\s+$/, "") + "\n";
+const state = { res: new Map(), flat: [], err: null, ms: 0, done: true, auto: true, delay: 260, appearance: "system" };
+const pkgs = [["zod", "3.23.8"], ["date-fns", "4.1.0"]];
+let runId = 0, timer, queued = false, tabRelease = false;
+
+function run() {
+  clearTimeout(timer);
+  const id = ++runId, lines = stripTS(ta.value).split("\n");
+  let fn;
+  try { fn = new Function("__r", "__log", "__s", "return (async()=>{\n" + instrument(lines).join("\n") + "\n})()"); }
+  catch (e) { state.err = e.name + ": " + e.message; render(); return; }
+  state.err = null; state.res = new Map(); state.flat = []; state.done = false;
+  const t0 = performance.now(), s = { at: -1 };
+  const rec = (i, kind, text) => {
+    if (id !== runId) return;
+    if (!state.res.has(i)) state.res.set(i, []);
+    const e = { i, kind, text };
+    state.res.get(i).push(e); state.flat.push(e); state.ms = performance.now() - t0;
+    queue();
+  };
+  const __r = (i, v) => { rec(i, "v", fmt(v)); return v; };
+  const __log = (i, k, ...a) => rec(i, k === "warn" ? "warn" : k === "error" ? "error" : "log", a.map(x => typeof x === "string" ? x : fmt(x)).join(" "));
+  render();
+  fn(__r, __log, s).catch(e => {
+    const m = String(e && e.stack || "").match(STACK_LINE);
+    let ln = m && OFFSET != null ? +m[1] - OFFSET : s.at;
+    if (!(ln >= 0 && ln < lines.length)) ln = s.at;
+    rec(ln, "error", ((e && e.name) || "Error") + ": " + ((e && e.message) || e));
+  }).finally(() => { if (id === runId) { state.done = true; state.ms = performance.now() - t0; queue(); } });
+}
+function queue() { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; render(); }); } }
+
+function render() {
+  const lines = ta.value.split("\n"), R = state.res;
+  app.classList.toggle("stale", !!state.err);
+  pre.innerHTML = lines.map(hl).join("\n") + "\n ";
+  nums.innerHTML = lines.map((_, i) => `<div class="${R.has(i) ? (R.get(i).some(e => e.kind === "error") ? "has err" : "has") : ""}">${i + 1}</div>`).join("");
+  resEl.innerHTML = lines.map((_, i) => {
+    const es = R.get(i);
+    if (!es) return '<div class="row"></div>';
+    return `<div class="row${es.some(e => e.kind === "error") ? " err" : ""}" title="${esc(es.map(e => e.text).join(" · "))}">${es.map(e => `<span class="${e.kind}">${esc(e.text)}</span>`).join('<span class="sep"> · </span>')}</div>`;
+  }).join("") + '<div class="pad"></div>';
+  $("#live").innerHTML = state.err ? '<i class="dot off"></i>Paused' : state.done ? '<i class="dot"></i>Live' : '<i class="dot busy"></i>Running';
+  $("#info").textContent = state.err ? state.err : `${state.flat.length} results · ${fmtMs(state.ms)}`;
+  sync();
+}
+function sync() { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; nums.scrollTop = ta.scrollTop; resEl.scrollTop = ta.scrollTop; }
+const renderPkgs = () => $("#pkgs").innerHTML = pkgs.map(([n, v]) => `<button class="it"><span>${esc(n)}</span><span>${esc(v)}</span></button>`).join("");
+
+ta.value = SAMPLE;
+ta.addEventListener("scroll", sync);
+ta.addEventListener("input", () => { render(); if (state.auto) { clearTimeout(timer); timer = setTimeout(run, state.delay); } });
+ta.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); run(); return; }
+  if (e.key === "Escape") { tabRelease = true; return; }
+  if (e.key === "Tab" && !e.shiftKey && !tabRelease) {
+    e.preventDefault();
+    const sp = " ".repeat(+$("#s-tab").value);
+    if (!document.execCommand("insertText", false, sp)) ta.setRangeText(sp, ta.selectionStart, ta.selectionEnd, "end");
+    ta.dispatchEvent(new Event("input"));
+  }
+  if (e.key !== "Tab") tabRelease = false;
+});
+$("#addpkg").addEventListener("keydown", e => {
+  const name = e.target.value.trim();
+  if (e.key !== "Enter" || !/^(@[\w.-]+\/)?[\w.-]+$/.test(name)) return;
+  if (!pkgs.some(p => p[0] === name)) pkgs.push([name, "latest"]);
+  e.target.value = ""; renderPkgs();
+});
+
+/* settings */
+const darkMQ = (() => { try { return matchMedia("(prefers-color-scheme: dark)"); } catch { return null; } })();
+const applyAppearance = () => app.dataset.mode = state.appearance === "system" ? (darkMQ && darkMQ.matches ? "dark" : "light") : state.appearance;
+darkMQ && darkMQ.addEventListener && darkMQ.addEventListener("change", applyAppearance);
+let lastFocus = null;
+function openSettings() { lastFocus = document.activeElement; setEl.hidden = false; setEl.querySelector('[aria-selected="true"]').focus(); }
+function closeSettings() { setEl.hidden = true; (lastFocus || ta).focus(); }
+const setAuto = on => { state.auto = on; $('[data-act="auto"]').setAttribute("aria-pressed", on); $("#s-auto").checked = on; if (on) run(); };
+
+app.addEventListener("click", e => {
+  const a = e.target.closest("[data-act]");
+  if (a) {
+    if (a.dataset.act === "auto") setAuto(!state.auto);
+    if (a.dataset.act === "run") run();
+    if (a.dataset.act === "settings") openSettings();
+    if (a.dataset.act === "close") closeSettings();
+  }
+  if (e.target === setEl) closeSettings();
+  const tab = e.target.closest(".snav button");
+  if (tab) {
+    setEl.querySelectorAll(".snav button").forEach(b => b.setAttribute("aria-selected", b === tab));
+    setEl.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== tab.dataset.tab);
+  }
+  const seg = e.target.closest("#appearance button");
+  if (seg) {
+    state.appearance = seg.dataset.v;
+    seg.parentElement.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === seg));
+    applyAppearance();
+  }
+});
+setEl.addEventListener("keydown", e => { if (e.key === "Escape") closeSettings(); if (e.key === "Enter" && e.target.dataset.act === "close") closeSettings(); });
+document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === ",") { e.preventDefault(); setEl.hidden ? openSettings() : closeSettings(); } });
+$("#s-auto").addEventListener("change", e => setAuto(e.target.checked));
+$("#s-delay").addEventListener("change", e => state.delay = Math.max(0, Math.min(2000, +e.target.value || 0)));
+$("#s-font").addEventListener("change", e => { const fs = +e.target.value; app.style.setProperty("--a-fs", fs + "px"); app.style.setProperty("--a-lh", Math.round(fs * 1.54) + "px"); render(); });
+$("#s-tab").addEventListener("change", e => { pre.style.tabSize = ta.style.tabSize = e.target.value; app.querySelector(".sb span:last-child").textContent = "Spaces: " + e.target.value; });
+$("#s-lang").addEventListener("change", e => $("#lang").textContent = e.target.value);
+
+applyAppearance();
+renderPkgs();
+probe().finally(run);
+</script>

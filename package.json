@@ -1,0 +1,43 @@
+{
+  "name": "scriptty",
+  "productName": "Scriptty",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Live TypeScript and JavaScript scratchpad",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && svelte-check --tsconfig ./tsconfig.web.json",
+    "test": "vitest run",
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:win": "electron-vite build && electron-builder --win"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "bun",
+      "electron",
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "magic-string": "^1.4.5",
+    "oxc-parser": "^0.157.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@tsconfig/svelte": "^5.0.8",
+    "@types/node": "^26.6.6",
+    "bun": "^1.4.4",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "monaco-editor": "^0.57.0",
+    "monaco-vim": "^0.4.4",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.8",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

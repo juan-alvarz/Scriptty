@@ -1,0 +1,38 @@
+appId: dev.scriptty.app
+productName: Scriptty
+directories:
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - "**/*.node"
+extraResources:
+  - from: resources/runner
+    to: runner
+  # Types for node: built-ins in the editor (see Packages.types)
+  - from: node_modules/@types/node
+    to: types/node
+    filter: ["**/*.d.ts", "package.json"]
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  # Each build ships only the bun binary installed on the build machine, so build each arch on its own runner.
+  extraResources:
+    - from: node_modules/bun/bin/bun.exe
+      to: bin/bun
+  hardenedRuntime: true
+  notarize: false # set true once the Apple Developer ID is in CI
+win:
+  target:
+    - nsis
+  extraResources:
+    - from: node_modules/bun/bin/bun.exe
+      to: bin/bun.exe
+  # azureSignOptions: add once Azure Trusted Signing is set up
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
