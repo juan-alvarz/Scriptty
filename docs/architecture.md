@@ -34,7 +34,7 @@ Not done yet:
 - README in package details is plain text, not rendered Markdown.
 - Tabs cannot be reordered by dragging yet.
 - `Bun.*` globals have no editor types (add `bun-types` the same way as `@types/node`).
-- Auto-update wiring, signing, app icon.
+- Auto-update wiring, signing.
 - Windows build not run yet (menu accelerators with the hidden title bar need checking there). CI not set up.
 - The native context menu and ⌘, accelerator were checked by hand only; automated tests cover the main-process logic.
 
@@ -59,6 +59,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 13 | Packaging and updates with **electron-builder** + `electron-updater` | Default for electron-vite. NSIS installer on Windows. Differential updates keep downloads small despite the bundled bun. Updates from any host (GitHub Releases, S3/R2, HTTP). Electron Forge was the alternative. | 2026-11-06 |
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
+| 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
 
 ## Electron on macOS and Windows
 
