@@ -92,7 +92,10 @@ export function createEditor(el: HTMLElement): monaco.editor.IStandaloneCodeEdit
     scrollBeyondLastLine: false,
     automaticLayout: true,
     renderLineHighlight: 'line',
-    overviewRulerLanes: 0,
+    // One lane: diagnostics and runtime error markers show in the scrollbar, the cursor does not.
+    overviewRulerLanes: 1,
+    overviewRulerBorder: false,
+    hideCursorInOverviewRuler: true,
     scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 }
   })
   applyTheme()
