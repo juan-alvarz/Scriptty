@@ -63,3 +63,81 @@ button {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* Shared by several components. */
+.drag {
+  -webkit-app-region: drag;
+}
+.drag button {
+  -webkit-app-region: no-drag;
+}
+.sp {
+  flex: 1;
+}
+.muted {
+  color: var(--muted);
+}
+h5 {
+  margin: 0 0 6px 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+/* Toolbar and panel buttons. */
+.tbtn {
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 9px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.tbtn[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+/* Dialog buttons. */
+.btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--field);
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* Strip on top of the editor and the right panel; same height so result rows stay level with their lines. */
+.colhead {
+  height: 32px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  box-sizing: border-box;
+}
+/* Monaco host: absolutely positioned so its size never feeds back into the layout (the zoom bug). */
+.host {
+  position: absolute;
+  inset: 0;
+}
+/* Dialog frame; each dialog sets its own width and height. */
+dialog {
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 40px);
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+dialog::backdrop {
+  background: rgba(20, 22, 26, 0.32);
+}
