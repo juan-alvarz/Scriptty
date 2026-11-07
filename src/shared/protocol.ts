@@ -83,3 +83,12 @@ export type BundleOptions = { minify: boolean; inlinePackages: boolean }
 export const WIDTH_LIMITS = { sidebar: [160, 480], results: [200, 1600] } as const
 
 export type Result<T = void> = { ok: true; value: T } | { ok: false; error: string }
+
+/**
+ * A user snippet, normalized from VS Code's snippet JSON. `name` is the entry's key in the file.
+ * `body` uses VS Code snippet syntax: `$1`, `${1:placeholder}`, `${1|a,b|}`, `$0`.
+ */
+export type Snippet = { name: string; prefix: string[]; body: string; description: string; scope?: string }
+
+/** `error` is set when the file could not be read; `snippets` then holds the last good set. */
+export type SnippetsState = { snippets: Snippet[]; error: string; file: string }
