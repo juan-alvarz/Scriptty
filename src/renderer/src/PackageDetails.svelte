@@ -80,20 +80,8 @@
 
 <style>
   dialog {
-    padding: 0;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--bg);
-    color: var(--fg);
     width: 640px;
-    max-width: calc(100vw - 40px);
     height: 560px;
-    max-height: calc(100vh - 40px);
-    box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.5);
-    overflow: hidden;
-  }
-  dialog::backdrop {
-    background: rgba(20, 22, 26, 0.32);
   }
   .win {
     display: grid;
@@ -213,15 +201,6 @@
     justify-content: flex-end;
     padding: 10px 14px;
     border-top: 1px solid var(--line);
-  }
-  .btn {
-    font-size: 12px;
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--line);
-    background: var(--field);
-    white-space: nowrap;
-    cursor: pointer;
   }
   .primary {
     background: var(--accent);
