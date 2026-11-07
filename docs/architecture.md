@@ -2,7 +2,7 @@
 
 Scriptty is a desktop scratchpad that runs TypeScript and JavaScript as you type and shows each line's result beside it.
 
-Status: architecture decided (decisions 1 to 15). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
+Status: architecture decided (decisions 1 to 17). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
 
 ## Implementation status
 
@@ -28,12 +28,13 @@ Done (layout, bundle, imports, 2026-11-07):
 - Tabs for open files in the editor column header: tree clicks open or focus a tab (new tabs go right after the current one), × / middle-click / ⌘W close, Ctrl+Tab and Ctrl+Shift+Tab cycle, cursor and scroll are kept per tab, tabs follow renames and deletes, and open tabs are restored on launch (`openFiles` in settings).
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
+- `Bun.*` globals, `import.meta.dir` / `.path` / `.file` and `bun:*` modules (`bun:sqlite`, `bun:ffi`, …) type-check and autocomplete: a bundled `bun-types` (same version as the bundled bun, 1.4.4) is loaded into Monaco next to `@types/node`, plus `undici-types`, which both reference (decision 17). A copy the user installs in the packages panel (`bun-types` or `@types/bun`) wins over the bundled one.
 
 Not done yet:
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - README in package details is plain text, not rendered Markdown.
 - Tabs cannot be reordered by dragging yet.
-- `Bun.*` globals have no editor types (add `bun-types` the same way as `@types/node`).
+- Monaco makes every extra lib a root file, so `@types/node`'s `ts5.6/` and `ts5.7/` fallbacks and every `package.json` load too. They only cause errors inside the libs, which Monaco does not show; skip typesVersions folders that do not apply if they ever leak into scratches.
 - Auto-update wiring, signing.
 - Windows build not run yet (menu accelerators with the hidden title bar need checking there). CI not set up.
 - The native context menu and ⌘, accelerator were checked by hand only; automated tests cover the main-process logic.
@@ -60,6 +61,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | Editor types for Bun come from a bundled **`bun-types`**, shipped like `@types/node` | `bun-types` is the real package (`@types/bun` only references it), and it has the same version range as `bun` in `package.json` (both 1.4.4 now), so the types follow the bundled runtime; bump them together. It and `@types/node` both reference `undici-types`, so that ships too. `BUNDLED_TYPES` in `src/main/index.ts` lists them; `Packages.types` loads each unless the user installed their own copy. Only `.d.ts` files and `package.json` go into the app (about 1.4 MB; bun-types' docs alone are 7 MB). Monaco makes every extra lib a root file, so bun-types' opt-in `test-globals.d.ts` (jest-style globals that exist only under `bun test`) and its `ts7.1/` entry (syntax Monaco's TypeScript 5.9 cannot parse) are left out. | 2026-11-07 |
 
 ## Electron on macOS and Windows
 
