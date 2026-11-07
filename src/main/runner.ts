@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { join } from 'node:path'
 import { MARK, type FromRunner, type RunnerEvent, type ToRunner } from '../shared/protocol'
@@ -13,7 +13,7 @@ export type RunnerOptions = {
   onEvent: (e: RunnerEvent) => void
 }
 
-type Proc = { child: ChildProcess; lastBeat: number; runId: number; exited: boolean; killed: boolean }
+type Proc = { child: ChildProcessWithoutNullStreams; lastBeat: number; runId: number; exited: boolean; killed: boolean }
 
 /** Warm spare runner (decision 10): one fresh bun process waits, ready to take the next run. */
 export class Runner {
@@ -65,14 +65,13 @@ export class Runner {
     // NODE_PATH: files the scratch imports find the shared packages too, wherever they live.
     const child = spawn(this.o.bun, ['--no-install', this.o.host], {
       cwd: this.o.cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, NODE_PATH: join(this.o.cwd, 'node_modules'), NO_COLOR: '1', FORCE_COLOR: '0' },
       windowsHide: true
     })
     const p: Proc = { child, lastBeat: Date.now(), runId: -1, exited: false, killed: false }
-    child.stdin!.on('error', () => {})
-    createInterface({ input: child.stdout! }).on('line', (line) => this.onLine(p, line))
-    createInterface({ input: child.stderr! }).on('line', (line) => this.forward(p, { kind: 'warn', text: line }))
+    child.stdin.on('error', () => {})
+    createInterface({ input: child.stdout }).on('line', (line) => this.onLine(p, line))
+    createInterface({ input: child.stderr }).on('line', (line) => this.forward(p, { kind: 'warn', text: line }))
     child.on('error', (e) => {
       p.exited = true
       if (p === this.active) this.finish(p, `Could not start the runtime: ${e.message}`)
@@ -103,7 +102,7 @@ export class Runner {
   }
 
   private send(p: Proc, m: ToRunner): void {
-    p.child.stdin!.write(JSON.stringify(m) + '\n')
+    p.child.stdin.write(JSON.stringify(m) + '\n')
   }
 
   private kill(p: Proc): void {

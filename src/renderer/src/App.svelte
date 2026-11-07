@@ -4,7 +4,7 @@
   import Tree from './Tree.svelte'
   import Packages from './Packages.svelte'
   import SettingsDialog from './Settings.svelte'
-  import { DEFAULT_SETTINGS, type ResultKind, type RunnerEvent, type Settings, type TreeNode } from '../../shared/protocol'
+  import { DEFAULT_SETTINGS, WIDTH_LIMITS, type ResultKind, type RunnerEvent, type Settings, type TreeNode } from '../../shared/protocol'
 
   type Entry = { kind: ResultKind; text: string; full?: string }
   const api = window.scriptty
@@ -32,12 +32,12 @@
   let bundleOpts = $state({ minify: false, inlinePackages: false })
   let bundleState = $state({ busy: false, error: '', bytes: 0 })
   let bundleSeq = 0
-  // Live pane widths while dragging; saved to settings when the drag ends.
   let tabs = $state<string[]>([])
   let tabsEl: HTMLDivElement
   let ready = $state(false)
   // Cursor, selection and scroll per open file, restored when its tab comes back.
   const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>()
+  // Live pane widths while dragging; saved to settings when the drag ends.
   let sideW = $state(DEFAULT_SETTINGS.sidebarWidth)
   let resW = $state(DEFAULT_SETTINGS.resultsWidth)
 
@@ -55,6 +55,7 @@
   let pendingSave: { rel: string; content: string } | null = null
   let queued = false
 
+  const NO_ENTRIES: Entry[] = []
   const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
   const lineHeight = $derived(lineHeightFor(settings.fontSize))
 
@@ -77,7 +78,11 @@
         html += `<button class="row${cls}" data-line="${line}" style="top:${top}px" title="Show full output"><span class="t">${body}</span>${n}</button>`
       }
       gutterEl.innerHTML = html
-      if (detail) detail = { line: detail.line, entries: results.get(detail.line) ?? [] }
+      // Only touch the panel when its line got new output; paint also runs on every scroll.
+      if (detail) {
+        const entries = results.get(detail.line) ?? NO_ENTRIES
+        if (entries !== detail.entries) detail = { line: detail.line, entries }
+      }
     })
   }
 
@@ -140,13 +145,8 @@
     }
   }
 
-  async function copyBundle(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(viewer?.getValue() ?? '')
-    } catch {
-      // clipboard unavailable: the code is selectable
-    }
-  }
+  // Clipboard unavailable: the text stays selectable on screen.
+  const copyText = (text: string): Promise<void> => navigator.clipboard.writeText(text).catch(() => {})
 
   function insertImport(line: string): void {
     const model = editor?.getModel()
@@ -159,8 +159,9 @@
   const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
 
   function setWidth(which: 'side' | 'res', w: number): void {
-    if (which === 'side') sideW = clamp(Math.round(w), 160, 480)
-    else resW = clamp(Math.round(w), 200, Math.max(200, (bodyEl?.clientWidth ?? 1000) - 240))
+    const [lo, hi] = WIDTH_LIMITS[which === 'side' ? 'sidebar' : 'results']
+    if (which === 'side') sideW = clamp(Math.round(w), lo, hi)
+    else resW = clamp(Math.round(w), lo, Math.min(hi, Math.max(lo, (bodyEl?.clientWidth ?? 1000) - 240)))
   }
   const saveWidths = (): Promise<void> => change({ sidebarWidth: sideW, resultsWidth: resW })
 
@@ -315,7 +316,8 @@
   async function rename(node: TreeNode, name: string): Promise<void> {
     if (renaming !== node.path) return // Enter and blur both commit; only the first counts
     renaming = ''
-    if (name.trim() === node.name || !name.trim()) return
+    const trimmed = name.trim()
+    if (!trimmed || trimmed === node.name) return
     await flush()
     const r = await api.fs.rename(node.path, name)
     if (!r.ok) {
@@ -398,14 +400,6 @@
     paint()
   }
 
-  async function copyDetail(): Promise<void> {
-    if (!detail) return
-    try {
-      await navigator.clipboard.writeText(detail.entries.map((e) => e.full ?? e.text).join('\n'))
-    } catch {
-      // clipboard unavailable: the text is selectable in the panel
-    }
-  }
 
   onMount(() => {
     const ed = createEditor(editorEl)
@@ -418,9 +412,7 @@
       startRun(e.runId)
       if (fresh) {
         // Keep the previous run's results on screen until the new run says something, to avoid flicker.
-        results = new Map()
-        general = []
-        count = 0
+        clearResults()
         fresh = false
       }
       if (e.type === 'result') {
@@ -454,7 +446,7 @@
     })
     ed.onDidScrollChange(paint)
     ed.onDidLayoutChange(paint)
-    ed.addCommand(2048 | 3 /* CtrlCmd + Enter */, () => runNow())
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runNow())
     window.addEventListener('beforeunload', flush)
 
     ;(async () => {
@@ -543,8 +535,8 @@
         aria-orientation="vertical"
         aria-label="Resize sidebar"
         aria-valuenow={sideW}
-        aria-valuemin={160}
-        aria-valuemax={480}
+        aria-valuemin={WIDTH_LIMITS.sidebar[0]}
+        aria-valuemax={WIDTH_LIMITS.sidebar[1]}
         tabindex="0"
         title="Drag to resize. Double-click to reset."
         onpointerdown={(e) => drag(e, 'side')}
@@ -595,7 +587,7 @@
           aria-orientation="vertical"
           aria-label="Resize results"
           aria-valuenow={resW}
-          aria-valuemin={200}
+          aria-valuemin={WIDTH_LIMITS.results[0]}
           tabindex="0"
           title="Drag to resize. Double-click to reset."
           onpointerdown={(e) => drag(e, 'res')}
@@ -616,7 +608,7 @@
                 <b>Line {detail.line}</b>
                 <span class="muted">{detail.entries.length} {detail.entries.length === 1 ? 'output' : 'outputs'}</span>
                 <span class="sp"></span>
-                <button class="tbtn" onclick={copyDetail}>Copy</button>
+                <button class="tbtn" onclick={() => detail && copyText(detail.entries.map((e) => e.full ?? e.text).join('\n'))}>Copy</button>
                 <button class="tbtn" aria-label="Close output" onclick={() => ((detail = null), paint())}>×</button>
               </header>
               <div class="pbody">
@@ -643,7 +635,7 @@
             </label>
             <span class="sp"></span>
             <span class="muted">{bundleState.busy ? 'Building…' : bundleState.error ? 'Build failed' : `${(bundleState.bytes / 1024).toFixed(1)} KB`}</span>
-            <button class="tbtn" onclick={copyBundle} disabled={!!bundleState.error}>Copy</button>
+            <button class="tbtn" onclick={() => copyText(viewer?.getValue() ?? '')} disabled={!!bundleState.error}>Copy</button>
           </header>
           {#if bundleState.error}<pre class="berr" role="alert">{bundleState.error}</pre>{/if}
           <div class="vhost" class:dim={!!bundleState.error}><div class="host" bind:this={viewerEl}></div></div>

@@ -77,4 +77,9 @@ export type PackageDetails = PackageInfo & {
 
 export type TypeLib = { path: string; content: string }
 
+export type BundleOptions = { minify: boolean; inlinePackages: boolean }
+
+/** Pane width limits in px, shared by the settings validator and the resize handles. */
+export const WIDTH_LIMITS = { sidebar: [160, 480], results: [200, 1600] } as const
+
 export type Result<T = void> = { ok: true; value: T } | { ok: false; error: string }

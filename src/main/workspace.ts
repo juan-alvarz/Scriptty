@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { TreeNode } from '../shared/protocol'
 
@@ -46,12 +46,14 @@ export class Workspace {
     collect(await this.tree())
     const out: { path: string; content: string }[] = []
     for (const path of files.slice(0, maxFiles)) {
-      const content = await readFile(this.abs(path), 'utf8')
-      if (content.length <= maxBytes) out.push({ path, content })
+      const abs = this.abs(path)
+      // Check the size first, so a huge file is never read just to be dropped.
+      if ((await stat(abs)).size <= maxBytes) out.push({ path, content: await readFile(abs, 'utf8') })
     }
     return out
   }
 
+  // async on read and write: a bad path from abs() becomes a rejected promise, not a sync throw.
   async read(rel: string): Promise<string> {
     return readFile(this.abs(rel), 'utf8')
   }

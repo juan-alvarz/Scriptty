@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs'
-import { DEFAULT_SETTINGS, type Settings } from '../shared/protocol'
+import { DEFAULT_SETTINGS, WIDTH_LIMITS, type Settings } from '../shared/protocol'
 
 const clamp = (n: unknown, lo: number, hi: number, d: number): number =>
   typeof n === 'number' && Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d
@@ -18,8 +18,8 @@ export function sanitize(input: Partial<Settings>, base: Settings = DEFAULT_SETT
     lastFile: typeof s.lastFile === 'string' ? s.lastFile : base.lastFile,
     openFiles: Array.isArray(s.openFiles) ? [...new Set(s.openFiles.filter((f) => typeof f === 'string'))].slice(0, 30) : base.openFiles,
     sidebarHidden: typeof s.sidebarHidden === 'boolean' ? s.sidebarHidden : base.sidebarHidden,
-    sidebarWidth: clamp(s.sidebarWidth, 160, 480, base.sidebarWidth),
-    resultsWidth: clamp(s.resultsWidth, 200, 1600, base.resultsWidth)
+    sidebarWidth: clamp(s.sidebarWidth, ...WIDTH_LIMITS.sidebar, base.sidebarWidth),
+    resultsWidth: clamp(s.resultsWidth, ...WIDTH_LIMITS.results, base.resultsWidth)
   }
 }
 
