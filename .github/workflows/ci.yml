@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+
+# A new push to the same branch or PR cancels the run it replaces.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      # package.json has no packageManager field, so pin the major here (lockfile v9, pnpm 10 locally).
+      # pnpm 10 runs only the build scripts in pnpm.onlyBuiltDependencies: bun's postinstall puts the
+      # real binary at node_modules/bun/bin/bun.exe, which the runner tests and the packaged app use.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  # Unsigned, unpacked app per OS. Each runner bundles its own bun binary (see electron-builder.yml),
+  # so the app only runs on the OS and CPU it was built on (macos-latest is arm64).
+  package:
+    name: Package (${{ matrix.os }})
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: dist/Scriptty-mac.zip
+          - os: windows-latest
+            artifact: dist/win-unpacked
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm exec electron-builder --dir --publish never
+
+      # Zip the .app with ditto first: artifact uploads drop the symlinks inside Electron's frameworks.
+      - name: Zip the macOS app
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent dist/mac*/Scriptty.app dist/Scriptty-mac.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Scriptty-${{ runner.os }}-unpacked
+          path: ${{ matrix.artifact }}
+          retention-days: 5
+          if-no-files-found: error

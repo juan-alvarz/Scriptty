@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { instrument } from './instrument'
 
@@ -41,10 +42,12 @@ describe('instrument', () => {
 
   it('makes relative imports absolute when given the scratch folder', () => {
     const r = instrument('import { a } from "./lib/a"\nexport * from "../b"\nconst c = await import("./c")\nimport z from "zod"', 'x.ts', '/ws/dir')
+    // On Windows `/ws` resolves to `C:/ws`, so build the expected paths the same way.
+    const abs = (p: string): string => resolve(p).replace(/\\/g, '/')
     expect(r.ok && r.code.split('\n')).toEqual([
-      'import { a } from "/ws/dir/lib/a"',
-      'export * from "/ws/b"',
-      'const c = await import("/ws/dir/c")',
+      `import { a } from "${abs('/ws/dir/lib/a')}"`,
+      `export * from "${abs('/ws/b')}"`,
+      `const c = await import("${abs('/ws/dir/c')}")`,
       'import z from "zod"'
     ])
   })

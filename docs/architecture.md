@@ -2,7 +2,7 @@
 
 Scriptty is a desktop scratchpad that runs TypeScript and JavaScript as you type and shows each line's result beside it.
 
-Status: architecture decided (decisions 1 to 15). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
+Status: architecture decided (decisions 1 to 17). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
 
 ## Implementation status
 
@@ -29,13 +29,18 @@ Done (layout, bundle, imports, 2026-11-07):
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
+Done (CI, 2026-11-07):
+- GitHub Actions (`.github/workflows/ci.yml`) on pushes and pull requests to `dev` and `main`: install, `pnpm typecheck`, `pnpm test` (real bun) and `pnpm build` on macOS, Windows and Linux. A superseded run on the same branch or PR is cancelled.
+- After the checks pass, an unsigned `electron-builder --dir` build on macOS (arm64) and Windows (x64), uploaded as an artifact kept for 5 days (`Scriptty-macOS-unpacked` holds a zipped `.app`, `Scriptty-Windows-unpacked` the `win-unpacked` folder).
+
 Not done yet:
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - README in package details is plain text, not rendered Markdown.
 - Tabs cannot be reordered by dragging yet.
 - `Bun.*` globals have no editor types (add `bun-types` the same way as `@types/node`).
 - Auto-update wiring, signing.
-- Windows build not run yet (menu accelerators with the hidden title bar need checking there). CI not set up.
+- The Windows build from CI has not been run by hand yet (menu accelerators with the hidden title bar need checking there).
+- CI builds are unsigned and arm64-only on macOS; signed release builds (and macOS x64, Windows arm64 runners) come with signing.
 - The native context menu and ⌘, accelerator were checked by hand only; automated tests cover the main-process logic.
 
 Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26 MB, mostly Monaco).
@@ -60,6 +65,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | **CI on GitHub Actions** for macOS, Windows and Linux | Every push and PR to `dev`/`main` typechecks, tests (with the real bundled bun) and builds on all three OSes, so platform bugs show up before a release. macOS and Windows also package an unsigned `--dir` app as a short-lived artifact; each is built on its own runner because the bundled bun and oxc binding are per OS and CPU. Linux only runs the checks (no Linux target yet). pnpm is pinned to major 10 in the workflow since `package.json` has no `packageManager` field. | 2026-11-07 |
 
 ## Electron on macOS and Windows
 
