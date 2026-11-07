@@ -10,9 +10,16 @@ asarUnpack:
 extraResources:
   - from: resources/runner
     to: runner
-  # Types for node: built-ins in the editor (see Packages.types)
+  # Editor types (see Packages.types and BUNDLED_TYPES in src/main/index.ts): node: built-ins, the Bun global,
+  # and undici-types, which both reference. Only .d.ts files and package.json, no docs.
   - from: node_modules/@types/node
     to: types/node
+    filter: ["**/*.d.ts", "package.json"]
+  - from: node_modules/bun-types
+    to: types/bun
+    filter: ["**/*.d.ts", "package.json", "!test-globals.d.ts", "!ts7.1"]
+  - from: node_modules/undici-types
+    to: types/undici
     filter: ["**/*.d.ts", "package.json"]
 mac:
   category: public.app-category.developer-tools

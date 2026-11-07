@@ -14,19 +14,31 @@ import type { BundleOptions, MenuAction, Result, RunResponse, Settings } from '.
 
 const isMac = process.platform === 'darwin'
 
-function runtimePaths(): { bun: string; host: string; nodeTypes: string } {
+/**
+ * Type packages shipped with the app for the editor (see Packages.types), by package name -> folder under
+ * resources/types in a packaged app. Keep in sync with extraResources in electron-builder.yml.
+ */
+const BUNDLED_TYPES = { '@types/node': 'node', 'bun-types': 'bun', 'undici-types': 'undici' }
+
+function runtimePaths(): { bun: string; host: string; types: Record<string, string> } {
+  const root = app.getAppPath()
+  const types = Object.fromEntries(
+    Object.entries(BUNDLED_TYPES).map(([name, folder]) => [
+      name,
+      app.isPackaged ? join(process.resourcesPath, 'types', folder) : join(root, 'node_modules', name)
+    ])
+  )
   if (!app.isPackaged) {
-    const root = app.getAppPath()
     return {
       bun: join(root, 'node_modules/bun/bin/bun.exe'),
       host: join(root, 'resources/runner/host.ts'),
-      nodeTypes: join(root, 'node_modules/@types/node')
+      types
     }
   }
   return {
     bun: join(process.resourcesPath, 'bin', process.platform === 'win32' ? 'bun.exe' : 'bun'),
     host: join(process.resourcesPath, 'runner/host.ts'),
-    nodeTypes: join(process.resourcesPath, 'types/node')
+    types
   }
 }
 
@@ -95,7 +107,7 @@ app.whenReady().then(async () => {
   let settings = loadSettings(settingsFile)
   nativeTheme.themeSource = settings.appearance
 
-  const { bun, host, nodeTypes } = runtimePaths()
+  const { bun, host, types } = runtimePaths()
   const { dir, runs } = packagesDir()
   const workspace = new Workspace(join(app.getPath('documents'), 'Scriptty'))
   await workspace.ensure(SAMPLE)
@@ -153,7 +165,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('pkg:list', () => packages.list())
   ipcMain.handle('pkg:add', (_e, spec: string) => packages.add(spec))
   ipcMain.handle('pkg:remove', (_e, name: string) => packages.remove(name))
-  ipcMain.handle('pkg:types', () => packages.types(nodeTypes))
+  ipcMain.handle('pkg:types', () => packages.types(types))
   ipcMain.handle('pkg:info', safe((name: string) => packages.info(name)))
   ipcMain.handle('bundle', safe(async (rel: string, o: BundleOptions) => {
     const r = await bundle(bun, workspace.abs(rel), dir, { minify: !!o?.minify, inlinePackages: !!o?.inlinePackages })

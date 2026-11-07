@@ -30,6 +30,7 @@
     "@tsconfig/svelte": "^5.0.8",
     "@types/node": "^26.6.6",
     "bun": "^1.4.4",
+    "bun-types": "^1.4.4",
     "electron": "^45.2.3",
     "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",

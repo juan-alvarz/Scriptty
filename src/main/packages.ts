@@ -23,6 +23,13 @@ const httpsOnly = (u: unknown): string => (typeof u === 'string' && /^https?:\/\
 const identifierFor = (name: string): string =>
   (name.split('/').pop() ?? name).replace(/[^\w$]+(\w)/g, (_m, c: string) => c.toUpperCase()).replace(/^[^a-zA-Z_$]/, '_$&')
 
+/**
+ * Declaration files never sent to Monaco. Monaco makes every extra lib a root file, so opt-in entry points would
+ * load anyway: bun-types' test-globals (`describe`, `expect` as globals, only true under `bun test`) and its
+ * ts7.1 entry (syntax that Monaco's TypeScript cannot parse).
+ */
+const SKIP_TYPES = /^bun-types\/(test-globals\.d\.ts|ts7\.1)$/
+
 /** One shared package environment, installed with the bundled bun (decision 9). */
 export class Packages {
   constructor(
@@ -78,9 +85,11 @@ export class Packages {
 
   /**
    * Type declarations of every installed package, as Monaco extra libs under file:///node_modules/.
+   * `bundled` maps package names to type folders shipped with the app (BUNDLED_TYPES in index.ts); each is
+   * loaded at file:///node_modules/<name> unless the user installed their own copy, which wins.
    * shortcut: sends all .d.ts files up to a size cap; switch to on-demand loading if workspaces get large.
    */
-  types(nodeTypes: string | null, maxBytes = 30 * 1024 * 1024): TypeLib[] {
+  types(bundled: Record<string, string>, maxBytes = 30 * 1024 * 1024): TypeLib[] {
     const nm = join(this.dir, 'node_modules')
     const libs: TypeLib[] = []
     let total = 0
@@ -95,12 +104,13 @@ export class Packages {
         if (e.name === 'node_modules' || e.name.startsWith('.')) continue
         const a = join(abs, e.name)
         const r = `${rel}/${e.name}`
+        if (SKIP_TYPES.test(r)) continue
         if (e.isDirectory()) walk(a, r)
         else if (/\.d\.[mc]?ts$/.test(e.name) || (e.name === 'package.json' && rel.split('/').length <= 2)) add(a, r)
       }
     }
-    // Bundled @types/node, so `node:fs` and friends type-check (bun implements them). A user-installed copy wins.
-    if (nodeTypes && existsSync(nodeTypes) && !existsSync(join(nm, '@types/node'))) walk(nodeTypes, '@types/node')
+    // Bundled types: `node:fs` and friends (bun implements them) and the `Bun` global. A user-installed copy wins.
+    for (const [name, dir] of Object.entries(bundled)) if (existsSync(dir) && !existsSync(join(nm, name))) walk(dir, name)
     if (!existsSync(nm)) return libs
     for (const e of readdirSync(nm, { withFileTypes: true })) {
       if (!e.isDirectory() || e.name.startsWith('.')) continue
