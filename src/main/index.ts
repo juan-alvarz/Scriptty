@@ -8,9 +8,9 @@ import { Workspace } from './workspace'
 import { Packages } from './packages'
 import { loadSettings, sanitize, saveSettings } from './settings'
 import { appMenu, treeMenu } from './menu'
-import { bundle, type BundleOptions } from './bundle'
+import { bundle } from './bundle'
 import { SAMPLE } from '../shared/sample'
-import type { MenuAction, Result, RunResponse, Settings } from '../shared/protocol'
+import type { BundleOptions, MenuAction, Result, RunResponse, Settings } from '../shared/protocol'
 
 const isMac = process.platform === 'darwin'
 
@@ -111,18 +111,23 @@ app.whenReady().then(async () => {
   let seq = 0
   let lastFile = ''
   ipcMain.handle('run', async (_e, code: string, rel: string): Promise<RunResponse> => {
-    const ext = extname(rel) || '.ts'
-    const dir = dirname(workspace.abs(rel))
-    // shortcut: instruments on the main thread; move to a worker_thread if large files stall IPC.
-    const r = instrument(code, 'scratch' + ext, dir)
-    if (!r.ok) return r
-    const runId = ++seq
-    const file = join(runs, `run-${runId}${ext}`)
-    await writeFile(file, r.code)
-    runner!.run(runId, file, r.imports, dir)
-    if (lastFile) rm(lastFile, { force: true }).catch(() => {})
-    lastFile = file
-    return { ok: true, runId }
+    try {
+      const ext = extname(rel) || '.ts'
+      const dir = dirname(workspace.abs(rel))
+      // shortcut: instruments on the main thread; move to a worker_thread if large files stall IPC.
+      const r = instrument(code, 'scratch' + ext, dir)
+      if (!r.ok) return r
+      const runId = ++seq
+      const file = join(runs, `run-${runId}${ext}`)
+      await writeFile(file, r.code)
+      runner!.run(runId, file, r.imports, dir)
+      if (lastFile) rm(lastFile, { force: true }).catch(() => {})
+      lastFile = file
+      return { ok: true, runId }
+    } catch (e) {
+      // A bad path or a failed write: report it in the status bar instead of rejecting the invoke.
+      return { ok: false, error: e instanceof Error ? e.message : String(e), line: 0 }
+    }
   })
 
   ipcMain.handle('settings:get', () => settings)

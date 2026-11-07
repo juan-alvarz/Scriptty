@@ -1,11 +1,13 @@
 // Runs inside the bundled bun. One process handles one run (see docs/architecture.md, decision 10).
 // In: JSON lines on stdin. Out: JSON lines on stdout, prefixed with MARK so stray prints are told apart.
 
+// Must match MARK in src/shared/protocol.ts (this file ships alone, so it cannot import it).
 const MARK = '\u0001scriptty\u0001'
 const send = (m: object): void => void process.stdout.write(MARK + JSON.stringify(m) + '\n')
 
 let runId = -1
-let file = ''
+/** Base name of the run file, as it appears in stack frames. */
+let fileName = ''
 
 setInterval(() => send({ type: 'hb' }), 200)
 
@@ -43,7 +45,7 @@ function sendError(e: unknown, fallbackLine = 0): void {
   const clean = (s: string): string => s.replace(/__log\(\d+, "(\w+)"\)/g, 'console.$1')
   const text = clean(raw)
   // Keep only stack frames from the scratch itself; host and bun internals are noise to the user.
-  const frames = (err?.stack ?? '').split('\n').filter((l) => /^\s+at /.test(l) && file && l.includes(file.split(/[\\/]/).pop()!))
+  const frames = (err?.stack ?? '').split('\n').filter((l) => /^\s+at /.test(l) && fileName && l.includes(fileName))
   const tidy = (f: string): string =>
     clean(f)
       .replace(/\((?:.*[\\/])?run-\d+\.\w+:(\d+):\d+\)/, '(line $1)')
@@ -53,8 +55,8 @@ function sendError(e: unknown, fallbackLine = 0): void {
 }
 
 function lineFromStack(stack?: string): number | null {
-  if (!stack || !file) return null
-  const name = file.split(/[\\/]/).pop()!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (!stack || !fileName) return null
+  const name = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const m = stack.match(new RegExp(name + ':(\\d+)'))
   return m ? Number(m[1]) : null
 }
@@ -102,7 +104,7 @@ for await (const raw of console) {
     }
   } else if (m.type === 'run') {
     runId = m.runId
-    file = m.file
+    fileName = m.file.split(/[\\/]/).pop() ?? ''
     try {
       process.chdir(m.dir) // relative fs paths in the scratch resolve next to the scratch
     } catch {

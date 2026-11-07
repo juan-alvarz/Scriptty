@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PackageDetails, PackageInfo, Result, TypeLib } from '../shared/protocol'
+import { exec } from './exec'
 
 // npm package name with an optional @version or @tag. Rejects anything that could be read as a CLI flag.
 const SPEC = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(@[\w.^~<>=*|-]+)?$/i
@@ -126,26 +126,13 @@ export class Packages {
     }
   }
 
-  private bunCmd(args: string[]): Promise<Result> {
-    return new Promise((done) => {
-      const child = spawn(this.bun, [...args, '--no-progress'], {
-        cwd: this.dir,
-        env: { ...process.env, BUN_INSTALL_CACHE_DIR: this.cacheDir, NO_COLOR: '1' },
-        windowsHide: true
-      })
-      let out = ''
-      child.stdout.on('data', (d) => (out += d))
-      child.stderr.on('data', (d) => (out += d))
-      const timer = setTimeout(() => child.kill('SIGKILL'), 5 * 60_000)
-      child.on('error', (e) => {
-        clearTimeout(timer)
-        done({ ok: false, error: e.message })
-      })
-      child.on('close', (code) => {
-        clearTimeout(timer)
-        const lastError = out.split('\n').find((l) => /error/i.test(l))?.trim()
-        done(code === 0 ? { ok: true, value: undefined } : { ok: false, error: lastError || `Install failed (exit ${code})` })
-      })
-    })
+  private async bunCmd(args: string[]): Promise<Result> {
+    const env = { ...process.env, BUN_INSTALL_CACHE_DIR: this.cacheDir, NO_COLOR: '1' }
+    const r = await exec(this.bun, [...args, '--no-progress'], { cwd: this.dir, env }, 5 * 60_000)
+    if (!r.ok) return r
+    const { code, stdout, stderr } = r.value
+    if (code === 0) return { ok: true, value: undefined }
+    const firstError = `${stderr}\n${stdout}`.split('\n').find((l) => /error/i.test(l))?.trim()
+    return { ok: false, error: firstError || `Install failed (exit ${code})` }
   }
 }

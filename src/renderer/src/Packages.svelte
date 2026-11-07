@@ -76,14 +76,6 @@
 {/if}
 
 <style>
-  h5 {
-    margin: 0 0 6px 8px;
-    font-size: 10.5px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    font-weight: 600;
-  }
   .pk {
     display: flex;
     align-items: center;

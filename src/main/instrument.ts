@@ -54,9 +54,12 @@ export function instrument(source: string, filename = 'scratch.ts', baseDir?: st
   return { ok: true, code: s.toString(), imports: [...imports] }
 }
 
+const IMPORT_NODES = new Set(['ImportDeclaration', 'ExportNamedDeclaration', 'ExportAllDeclaration', 'ImportExpression'])
+const CONSOLE_METHODS = new Set(['log', 'info', 'debug', 'warn', 'error', 'table', 'dir'])
+
 /** The string literal a static import, re-export or dynamic `import("...")` loads from. */
 function importSource(node: Node): (Node & { value: string }) | null {
-  if (!['ImportDeclaration', 'ExportNamedDeclaration', 'ExportAllDeclaration', 'ImportExpression'].includes(node.type)) return null
+  if (!IMPORT_NODES.has(node.type)) return null
   const src = node.source as (Node & { value: unknown }) | null
   return src && src.type === 'Literal' && typeof src.value === 'string' ? (src as Node & { value: string }) : null
 }
@@ -68,7 +71,7 @@ function consoleMethod(node: Node): string | null {
   const obj = callee.object as Node & { name?: string }
   const prop = callee.property as Node & { name?: string }
   if (obj.type !== 'Identifier' || obj.name !== 'console') return null
-  return ['log', 'info', 'debug', 'warn', 'error', 'table', 'dir'].includes(prop.name ?? '') ? prop.name! : null
+  return prop.name && CONSOLE_METHODS.has(prop.name) ? prop.name : null
 }
 
 function walk(node: Node, visit: (n: Node) => void): void {

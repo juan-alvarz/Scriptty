@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
+  BundleOptions,
   MenuAction,
   PackageInfo,
   PackageDetails,
@@ -46,7 +47,7 @@ const api = {
     types: (): Promise<TypeLib[]> => ipcRenderer.invoke('pkg:types'),
     info: (name: string): Promise<Result<PackageDetails>> => ipcRenderer.invoke('pkg:info', name)
   },
-  bundle: (rel: string, o: { minify: boolean; inlinePackages: boolean }): Promise<Result<string>> => ipcRenderer.invoke('bundle', rel, o),
+  bundle: (rel: string, o: BundleOptions): Promise<Result<string>> => ipcRenderer.invoke('bundle', rel, o),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url)
 }
 
