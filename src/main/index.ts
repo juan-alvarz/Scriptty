@@ -130,6 +130,8 @@ app.whenReady().then(async () => {
     }
   })
 
+  ipcMain.handle('stop', () => runner?.stop() ?? false)
+
   ipcMain.handle('settings:get', () => settings)
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => {
     settings = sanitize(patch, settings)

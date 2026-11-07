@@ -22,6 +22,8 @@ function listen<T>(channel: string, cb: (m: T) => void): () => void {
 const api = {
   platform: process.platform,
   run: (code: string, file: string): Promise<RunResponse> => ipcRenderer.invoke('run', code, file),
+  /** Stops the active run. Resolves false if nothing was running. */
+  stop: (): Promise<boolean> => ipcRenderer.invoke('stop'),
   onEvent: (cb: (e: RunnerEvent) => void) => listen('runner:event', cb),
   onMenu: (cb: (a: MenuAction) => void) => listen('menu', cb),
   settings: {

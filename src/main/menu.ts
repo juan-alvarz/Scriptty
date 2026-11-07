@@ -57,6 +57,11 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
         { role: 'togglefullscreen' }
       ]
     },
+    {
+      label: 'Run',
+      // ⌘. / Ctrl+. is Quick Fix in Monaco; the editor rebinds it to Stop too (App.svelte), so both agree.
+      submenu: [{ label: 'Stop', accelerator: 'CmdOrCtrl+.', click: () => send('stop') }]
+    },
     { role: 'windowMenu' }
   ]
   return Menu.buildFromTemplate(template)
