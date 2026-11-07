@@ -29,6 +29,11 @@ Done (layout, bundle, imports, 2026-11-07):
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
+Done (missing packages, 2026-11-07):
+- When a scratch imports a package that is not installed, a slim banner above the editor and results says "`lodash` isn't installed — Add · Add all (n)". Adding shows progress in the banner, reloads editor types, refreshes the Packages panel and runs again. × dismisses it for that file (a package that goes missing later shows again).
+- The import line gets a Monaco quick fix, "Install 'lodash'" (plus "Install all missing packages" when there are several), which installs through the same banner (`src/renderer/src/missing.ts`).
+- Main checks the run's bare imports against `packages/node_modules/<name>` (`src/main/missing.ts`, decision 17) and returns `missing` on the run response. `lodash/fp` counts as `lodash`, `@scope/pkg/sub` as `@scope/pkg`; `node:*`, `bun:*`, `bun` and bare node builtins (`fs`, `path`, from `module.builtinModules`) are skipped.
+
 Not done yet:
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - README in package details is plain text, not rendered Markdown.
@@ -37,6 +42,7 @@ Not done yet:
 - Auto-update wiring, signing.
 - Windows build not run yet (menu accelerators with the hidden title bar need checking there). CI not set up.
 - The native context menu and ⌘, accelerator were checked by hand only; automated tests cover the main-process logic.
+- Missing-package check only sees static top-level `import` declarations (what `instrument()` collects), not `export … from`, `import()` or `require()`. The banner and quick fix are not covered by automated UI tests.
 
 Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26 MB, mostly Monaco).
 
@@ -60,6 +66,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | **Main decides which imports are missing**, after instrumenting and before the run; the run still starts | Main knows the packages folder and node's builtin list, so the renderer never guesses. A check is one `existsSync` per bare import, cheap enough for every run. The run is not blocked, so the rest of the scratch's results and bun's own error still show. The editor quick fix is offered only for names main reported, so it never offers to install `fs` while types are loading. | 2026-11-07 |
 
 ## Electron on macOS and Windows
 

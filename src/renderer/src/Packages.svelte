@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import type { PackageInfo } from '../../shared/protocol'
   import PackageDetails from './PackageDetails.svelte'
+  import { PACKAGES_CHANGED } from './missing'
 
   let { onchange, oninsert }: { onchange: () => void; oninsert: (importLine: string) => void } = $props()
 
@@ -15,7 +16,11 @@
   const refresh = async (): Promise<void> => {
     list = await window.scriptty.packages.list()
   }
-  onMount(refresh)
+  onMount(() => {
+    refresh()
+    window.addEventListener(PACKAGES_CHANGED, refresh)
+    return () => window.removeEventListener(PACKAGES_CHANGED, refresh)
+  })
 
   async function add(e: SubmitEvent): Promise<void> {
     e.preventDefault()

@@ -15,7 +15,8 @@ export type ToRunner =
 
 export type FromRunner = RunnerEvent | { type: 'hb' }
 
-export type RunResponse = { ok: true; runId: number } | { ok: false; error: string; line: number }
+/** `missing`: packages the scratch imports that are not in the shared environment (the run still starts). */
+export type RunResponse = { ok: true; runId: number; missing: string[] } | { ok: false; error: string; line: number }
 
 /** Marks protocol lines on the runner's stdout, so stray prints from user code or packages are told apart. */
 export const MARK = '\u0001scriptty\u0001'
