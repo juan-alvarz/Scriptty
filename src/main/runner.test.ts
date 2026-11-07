@@ -14,7 +14,7 @@ let runner: Runner | null = null
 afterEach(() => runner?.dispose())
 
 function runCode(code: string, freezeMs = 5000, scratchDir = dir): Promise<RunnerEvent[]> {
-  const r = instrument(code, 'scratch.ts', scratchDir)
+  const r = instrument(code, join(scratchDir, 'scratch.ts'), scratchDir)
   if (!r.ok) throw new Error(r.error)
   const file = join(dir, `run-${Math.random().toString(36).slice(2)}.ts`)
   writeFileSync(file, r.code)
@@ -65,6 +65,28 @@ describe('runner', () => {
       ws
     )
     expect(results(es)).toEqual(['3 value 42', '4 value "hi"', '5 value "from disk"'])
+  })
+
+  it('gives the scratch its own location in import.meta and __dirname, not the run copy', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scriptty-ws-'))
+    writeFileSync(join(ws, 'note.txt'), 'next to me')
+    const es = await runCode(
+      [
+        'import { readFileSync } from "node:fs"',
+        'import { join } from "node:path"',
+        '{ process.chdir("/") }', // so only the rewritten paths can find the file
+        'readFileSync(join(import.meta.dir, "note.txt"), "utf8")',
+        'readFileSync(new URL("note.txt", import.meta.url), "utf8");',
+        '[__dirname, __filename, import.meta.file, import.meta.main]'
+      ].join('\n'),
+      5000,
+      ws
+    )
+    expect(results(es)).toEqual([
+      '4 value "next to me"',
+      '5 value "next to me"',
+      `6 value ${JSON.stringify([ws, join(ws, 'scratch.ts'), 'scratch.ts', true]).replace(/,/g, ', ')}`
+    ])
   })
 
   it('fails fast on a missing package instead of fetching it from npm', async () => {
