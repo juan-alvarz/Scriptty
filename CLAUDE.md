@@ -4,7 +4,7 @@ Desktop TS/JS live scratchpad built with Electron (macOS + Windows).
 
 Read `docs/architecture.md` first: it holds the decisions log, implementation status, process model, runner design and Rust candidates. Add new decisions to its table.
 
-UI mocks: `design/scriptty-graphite.html` (chosen direction), `design/scriptty-directions.html` (alternatives).
+UI mocks were removed from the tree; read them from history: `git show 42ffcb3:design/scriptty-graphite.html` (chosen direction), `git show 42ffcb3:design/scriptty-directions.html` (alternatives).
 
 ## Commands
 

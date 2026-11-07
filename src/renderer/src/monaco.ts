@@ -34,7 +34,7 @@ export function setTypeLibs(libs: TypeLib[]): void {
   ts.javascriptDefaults.setExtraLibs(extra)
 }
 
-// Graphite syntax colors, same as design/scriptty-graphite.html.
+// Graphite syntax colors, same as design/scriptty-graphite.html (git show 42ffcb3).
 monaco.editor.defineTheme('graphite-light', {
   base: 'vs',
   inherit: true,

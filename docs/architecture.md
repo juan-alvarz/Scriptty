@@ -2,7 +2,7 @@
 
 Scriptty is a desktop scratchpad that runs TypeScript and JavaScript as you type and shows each line's result beside it.
 
-Status: architecture decided (decisions 1 to 15). Scaffold runs end to end. UI mocks live in `design/`.
+Status: architecture decided (decisions 1 to 15). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
 
 ## Implementation status
 
@@ -46,7 +46,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 |---|----------|-----|------|
 | 1 | Build with **Electron** | Ships Node, which is the runtime we need for user code and packages. One codebase for macOS and Windows. | 2026-11-06 |
 | 2 | Target **macOS and Windows** | Electron code is shared. Each OS still needs its own build, signing and testing (see below). | 2026-11-06 |
-| 3 | UI direction is **Graphite** | Native-feeling, results in a right gutter aligned to each line. Mock: `design/scriptty-graphite.html`. Other directions: `design/scriptty-directions.html`. | 2026-11-06 |
+| 3 | UI direction is **Graphite** | Native-feeling, results in a right gutter aligned to each line. Mock: `design/scriptty-graphite.html` at commit `42ffcb3`. Other directions: `design/scriptty-directions.html` at commit `42ffcb3`. | 2026-11-06 |
 | 4 | Stay **package-manager agnostic** for the user | The user never installs or picks a package manager, and the UI says "Packages". Internally we use one bundled tool (decision 9). | 2026-11-06 |
 | 5 | Keep v1 **simple** | Settings has General, Editor, Runtime. The "Account & team" placeholder was removed on 2026-11-07; team features come later without a reserved tab. | 2026-11-06 |
 | 6 | **Rust where it pays off** | Use Rust tools (oxc) for the hot path. Write our own Rust only when profiling proves a need. See "Rust candidates". | 2026-11-06 |
@@ -186,4 +186,4 @@ Rule: prefer existing Rust tools shipped as npm packages. Write custom Rust (via
 ## Later, not v1
 
 - Account & team: sign in, workspaces, members and roles, shared scratches, shared packages and env. Add as a new Settings section when built.
-- Other UI directions from `design/scriptty-directions.html` (Spotlight menu bar panel, Inspector timing bars) as extra modes or themes.
+- Other UI directions from `design/scriptty-directions.html` (commit `42ffcb3`) (Spotlight menu bar panel, Inspector timing bars) as extra modes or themes.
