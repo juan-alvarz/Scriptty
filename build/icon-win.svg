@@ -1,0 +1,13 @@
+<!-- Windows variant of icon.svg: the body fills the canvas and has no drop shadow. Run pnpm icons after editing. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="84 84 856 856">
+  <defs>
+    <clipPath id="body"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#2A2D33"/>
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="6"/>
+  <g clip-path="url(#body)">
+    <path d="M162 732 L188.6 242 Q191.4 180.4 240.4 218.2 L442 373.6 Q457.4 384.8 477 384.8 L547 384.8 Q566.6 384.8 582 373.6 L783.6 218.2 Q832.6 180.4 835.4 242 L862 732 A210 210 0 0 1 652 942 L372 942 A210 210 0 0 1 162 732 Z" fill="#FBFBFC"/>
+  </g>
+  <path d="M299 524 L405 590 L299 656" fill="none" stroke="#2A2D33" stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="674" cy="590" r="56" fill="#2F5BEA"/>
+</svg>

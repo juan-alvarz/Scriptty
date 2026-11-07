@@ -12,6 +12,7 @@ UI mocks were removed from the tree; read them from history: `git show 42ffcb3:d
 - `pnpm test`: instrumentation and runner tests (spawns the real bundled bun)
 - `pnpm typecheck`: main/preload with tsc, renderer with svelte-check
 - `pnpm dist:mac` / `pnpm dist:win`: package with electron-builder (run each on its own OS)
+- `pnpm icons`: rebuild `build/icon.icns`, `.ico` and `.png` from the SVGs in `build/` (macOS, needs `rsvg-convert` and ImageMagick)
 
 ## Layout
 

@@ -88,6 +88,8 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  // Packaged apps take the icon from the bundle; dev runs would show Electron's.
+  if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
   const userData = app.getPath('userData')
   const settingsFile = join(userData, 'settings.json')
   let settings = loadSettings(settingsFile)
