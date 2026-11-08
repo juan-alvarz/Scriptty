@@ -2,7 +2,8 @@ import * as monaco from 'monaco-editor'
 import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 import TsWorker from 'monaco-editor/language/typescript/ts.worker.js?worker'
 import { initVimMode, type VimAdapterInstance } from 'monaco-vim'
-import type { TypeLib } from '../../shared/protocol'
+import type { Snippet, TypeLib } from '../../shared/protocol'
+import { toSuggestions } from './snippets'
 
 self.MonacoEnvironment = {
   getWorker: (_id: string, label: string) =>
@@ -33,6 +34,27 @@ export function setTypeLibs(libs: TypeLib[]): void {
   ts.typescriptDefaults.setExtraLibs(extra)
   ts.javascriptDefaults.setExtraLibs(extra)
 }
+
+// User snippets (Settings > Snippets). One provider for both languages; it reads the current list on every request.
+let snippets: Snippet[] = []
+export function setSnippets(list: Snippet[]): void {
+  snippets = list
+}
+monaco.languages.registerCompletionItemProvider(['typescript', 'javascript'], {
+  provideCompletionItems(model, position) {
+    const word = model.getWordUntilPosition(position)
+    const lineBefore = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
+    const { lineNumber, column } = position
+    const suggestions = toSuggestions(snippets, model.getLanguageId(), lineBefore, word.startColumn).map((s) => ({
+      ...s,
+      kind: monaco.languages.CompletionItemKind.Snippet,
+      insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+      documentation: { value: s.documentation },
+      range: { startLineNumber: lineNumber, startColumn: s.startColumn, endLineNumber: lineNumber, endColumn: column }
+    }))
+    return { suggestions }
+  }
+})
 
 // Graphite syntax colors, same as design/scriptty-graphite.html (git show 42ffcb3).
 monaco.editor.defineTheme('graphite-light', {

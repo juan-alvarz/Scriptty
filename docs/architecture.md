@@ -2,7 +2,7 @@
 
 Scriptty is a desktop scratchpad that runs TypeScript and JavaScript as you type and shows each line's result beside it.
 
-Status: architecture decided (decisions 1 to 15). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
+Status: architecture decided (decisions 1 to 17). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
 
 ## Implementation status
 
@@ -41,7 +41,14 @@ Done (runtime error markers, 2026-11-07):
 - Thrown errors and rejections get a red squiggle on their line (Monaco marker, owner `scriptty-runtime`), spanning the line's first to last non-whitespace character, with the error and its scratch stack frames in the hover. They also show in the overview ruler, which is now on with one lane (TS diagnostics show there too). Logic is in `src/renderer/src/markers.ts` (pure, tested); see decision 19.
 - Markers live on the model that ran: a new run's first event clears that file's markers (like the results gutter), and each tab keeps the markers of its own last run. Errors on line 0 and repeats of the same error on a line get no extra marker.
 
+Done (snippets, 2026-11-07):
+- User snippets in VS Code's format (decision 20): type a prefix such as `clg` and accept the suggestion (Tab or Enter) to get `console.log($1)` with the cursor inside. Tab stops, placeholders, choices and `$0` come from Monaco's snippet engine.
+- Stored in `userData/snippets.json` (`src/main/snippets.ts`), seeded once with a short starter set (`clg`, `con`, `afn`, `imp`, `tryc`) that doubles as examples. The file is JSONC (comments, trailing commas); a file that does not parse is reported in Settings and the last good snippets stay active. Edits from another editor are picked up by polling the file every second.
+- Settings > Snippets: list, add, edit, delete (second click confirms), syntax help, Open snippets file, Show in Finder, Restore starter snippets (puts the starter ones back, keeps the user's own).
+- One completion provider for TS and JS (`src/renderer/src/monaco.ts`); the snippet → suggestion conversion is plain TS in `src/renderer/src/snippets.ts` with unit tests.
+
 Not done yet:
+- Snippets: saving from Settings rewrites `snippets.json` and drops the user's own comments (the explanatory header is rewritten). Monaco's standalone build has no `tabCompletion` (prefix + Tab without the suggestion list), so the list must be open. Snippet variables (`$TM_FILENAME`, `$CLIPBOARD` …) resolve only as far as Monaco's standalone resolvers go.
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - README in package details is plain text, not rendered Markdown.
 - Tabs cannot be reordered by dragging yet.
@@ -78,6 +85,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 17 | **Stop** kills the active run; ⌘. / Ctrl+. is taken from Monaco's Quick Fix | Servers and intervals otherwise run until the next edit. Killing the process (not clearing timers in the host) is the only stop that always works, and the warm spare keeps the next run instant. The runner cannot tell an idle server from finished code, so the status goes back to "Running" (and Stop shows) when a run sends output after its `done`; an idle server can still be stopped with the shortcut. ⌘. is the macOS cancel key, so the editor rebinds it from Quick Fix (still on the lightbulb) to Stop. | 2026-11-07 |
 | 18 | **Main decides which imports are missing**, after instrumenting and before the run; the run still starts | Main knows the packages folder and node's builtin list, so the renderer never guesses. A check is one `existsSync` per bare import, cheap enough for every run. The run is not blocked, so the rest of the scratch's results and bun's own error still show. The editor quick fix is offered only for names main reported, so it never offers to install `fs` while types are loading. | 2026-11-07 |
 | 19 | Runtime errors are **Monaco markers on thrown errors only** | Markers give squiggles, hover and the overview ruler for free and are kept per model, so tabs need no bookkeeping. The runner flags thrown errors and rejections with `thrown: true` on the result event; `console.error` output is a log the user chose to write, so it stays in the results gutter without a squiggle. Hand-made decorations would duplicate what markers already render. | 2026-11-07 |
+| 20 | **User snippets in VS Code's JSON format**, one file in `userData` | Users can paste snippets from VS Code (prefix and body as a string or array, `scope`, tab stops, placeholders, choices) and edit the file by hand; Settings covers the common cases. Main owns the file and rejects edits while it does not parse, so a typo never costs the user their snippets. One global file instead of per-language files keeps v1 simple (decision 5); `scope` still limits a snippet to TS or JS. Snippet suggestions sort inline by match quality (Monaco's default), and win ties with TS suggestions. | 2026-11-07 |
 
 ## Electron on macOS and Windows
 

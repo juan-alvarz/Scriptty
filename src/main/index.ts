@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron'
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, watchFile } from 'node:fs'
 import { writeFile, rm } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { instrument } from './instrument'
@@ -10,8 +10,9 @@ import { loadSettings, sanitize, saveSettings } from './settings'
 import { appMenu, treeMenu } from './menu'
 import { bundle } from './bundle'
 import { installedIn, missingPackages } from './missing'
+import { SnippetStore } from './snippets'
 import { SAMPLE } from '../shared/sample'
-import type { BundleOptions, MenuAction, Result, RunResponse, Settings } from '../shared/protocol'
+import type { BundleOptions, MenuAction, Result, RunResponse, Settings, Snippet } from '../shared/protocol'
 
 const isMac = process.platform === 'darwin'
 
@@ -164,6 +165,29 @@ app.whenReady().then(async () => {
     if (!r.ok) throw new Error(r.error)
     return r.value
   }))
+  const snippets = new SnippetStore(join(userData, 'snippets.json'))
+  snippets.ensure()
+  snippets.load()
+  const sendSnippets = (): void => win?.webContents.send('snippets:changed', snippets.state)
+  // Picks up edits made in another editor ("Open snippets file"). Polling copes with editors that replace the file.
+  watchFile(snippets.file, { interval: 1000 }, () => snippets.load() && sendSnippets())
+  const snippetEdit =
+    <A extends unknown[]>(fn: (...a: A) => unknown) =>
+    (...a: A) => {
+      fn(...a)
+      sendSnippets()
+      return snippets.state
+    }
+  ipcMain.handle('snippets:get', () => snippets.state)
+  ipcMain.handle('snippets:put', safe(snippetEdit((oldName: string | null, s: Snippet) => snippets.put(oldName, s))))
+  ipcMain.handle('snippets:remove', safe(snippetEdit((name: string) => snippets.remove(name))))
+  ipcMain.handle('snippets:restore', safe(snippetEdit(() => snippets.restore())))
+  ipcMain.handle('snippets:open', async () => {
+    const err = await shell.openPath(snippets.file)
+    if (err) shell.showItemInFolder(snippets.file) // no app for .json: show it in the file manager instead
+  })
+  ipcMain.handle('snippets:reveal', () => shell.showItemInFolder(snippets.file))
+
   // Only web links leave the app; anything else (file:, custom schemes) is refused.
   ipcMain.handle('open-external', (_e, url: string) => (/^https:\/\//.test(url) ? shell.openExternal(url) : undefined))
 
