@@ -1,8 +1,9 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
+  Added,
   BundleOptions,
   MenuAction,
-  PackageInfo,
+  PackageList,
   PackageDetails,
   Result,
   RunResponse,
@@ -48,8 +49,9 @@ const api = {
     menu: (onItem: boolean): Promise<TreeAction | null> => ipcRenderer.invoke('fs:menu', onItem)
   },
   packages: {
-    list: (): Promise<PackageInfo[]> => ipcRenderer.invoke('pkg:list'),
-    add: (spec: string): Promise<Result> => ipcRenderer.invoke('pkg:add', spec),
+    list: (): Promise<PackageList> => ipcRenderer.invoke('pkg:list'),
+    add: (spec: string): Promise<Result<Added>> => ipcRenderer.invoke('pkg:add', spec),
+    addTypes: (name: string): Promise<Result> => ipcRenderer.invoke('pkg:add-types', name),
     remove: (name: string): Promise<Result> => ipcRenderer.invoke('pkg:remove', name),
     types: (): Promise<TypeLib[]> => ipcRenderer.invoke('pkg:types'),
     info: (name: string): Promise<Result<PackageDetails>> => ipcRenderer.invoke('pkg:info', name)

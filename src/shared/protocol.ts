@@ -74,6 +74,12 @@ export type SearchResult = { ok: true; matches: SearchMatch[]; truncated: boolea
 
 export type PackageInfo = { name: string; version: string }
 
+/** Installed packages, and the @types packages that type them (kept apart in the panel). */
+export type PackageList = { packages: PackageInfo[]; typeLibraries: PackageInfo[] }
+
+/** After an add: `typesPackage` is the @types package worth offering, or null when the package has types or none exist. */
+export type Added = { name: string; typesPackage: string | null }
+
 export type PackageDetails = PackageInfo & {
   description: string
   license: string

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { READ_LIMITS, Workspace } from './workspace'
 import type { SearchOptions, SearchResult } from '../shared/protocol'
-import { isValidSpec, repoUrl } from './packages'
+import { Packages, isValidSpec, repoUrl } from './packages'
 import { sanitize } from './settings'
 import { DEFAULT_SETTINGS } from '../shared/protocol'
 
@@ -123,6 +123,32 @@ describe('package specs', () => {
   it('accepts names with versions and rejects flags or paths', () => {
     for (const ok of ['zod', 'lodash@4', '@scope/pkg', '@scope/pkg@^1.2.0', 'date-fns@latest']) expect(isValidSpec(ok)).toBe(true)
     for (const bad of ['--global', '-g', '../evil', 'a b', 'https://x.dev/p.tgz', '']) expect(isValidSpec(bad)).toBe(false)
+  })
+})
+
+describe('package types', () => {
+  it('finds bundled and @types declarations, and stubs packages that have none', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'scriptty-pkg-'))
+    const pkg = (name: string, json: object, files: Record<string, string> = {}): void => {
+      mkdirSync(join(dir, 'node_modules', name), { recursive: true })
+      writeFileSync(join(dir, 'node_modules', name, 'package.json'), JSON.stringify({ name, version: '1.0.0', ...json }))
+      for (const [f, text] of Object.entries(files)) writeFileSync(join(dir, 'node_modules', name, f), text)
+    }
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { typed: '1', lodash: '4', bare: '1' }, devDependencies: { '@types/lodash': '4' } }))
+    pkg('typed', { types: 'main.d.ts' }, { 'main.d.ts': 'export default 1' })
+    pkg('lodash', {})
+    pkg('@types/lodash', {}, { 'index.d.ts': 'declare const _: unknown; export = _' })
+    pkg('bare', {})
+    const p = new Packages(dir, 'bun', dir)
+    expect([p.info('typed').types, p.info('lodash').types, p.info('bare').types]).toEqual(['bundled', '@types', 'none'])
+    expect(p.info('lodash').importLine).toBe('import lodash from "lodash"')
+    expect(p.list()).toEqual({
+      packages: ['bare', 'lodash', 'typed'].map((name) => ({ name, version: '1.0.0' })),
+      typeLibraries: [{ name: '@types/lodash', version: '1.0.0' }]
+    })
+    expect([p.info('@types/lodash').types, p.info('@types/lodash').importLine]).toEqual(['bundled', ''])
+    const stub = p.types(null).find((l) => l.path.endsWith('untyped.d.ts'))
+    expect(stub?.content).toBe('declare module "bare";')
   })
 })
 
