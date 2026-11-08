@@ -158,6 +158,22 @@ export function disposeModels(rel: string): void {
   for (const m of monaco.editor.getModels()) if (m.uri.path === prefix || m.uri.path.startsWith(prefix + '/')) m.dispose()
 }
 
+/** Syntax-colors `<pre><code data-lang>` blocks (rendered Markdown) with Monaco's tokenizers; unknown languages stay plain. */
+export async function colorizeCode(root: HTMLElement): Promise<void> {
+  const langs = monaco.languages.getLanguages()
+  const idFor = (name: string): string | undefined => {
+    const n = name.toLowerCase()
+    return langs.find((l) => l.id === n || l.aliases?.some((a) => a.toLowerCase() === n) || l.extensions?.includes('.' + n))?.id
+  }
+  for (const code of root.querySelectorAll<HTMLElement>('pre > code[data-lang]')) {
+    const id = idFor(code.dataset.lang ?? '')
+    if (!id) continue
+    // colorize escapes the text itself and returns only its own spans.
+    const html = await monaco.editor.colorize(code.textContent?.replace(/\n$/, '') ?? '', id, { tabSize: 2 })
+    if (code.isConnected) code.innerHTML = html.replace(/<br\/>$/, '')
+  }
+}
+
 let vim: VimAdapterInstance | null = null
 export function setVim(editor: monaco.editor.IStandaloneCodeEditor, on: boolean, status: HTMLElement): void {
   if (on && !vim) vim = initVimMode(editor, status)

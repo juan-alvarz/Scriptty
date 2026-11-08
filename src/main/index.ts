@@ -83,6 +83,9 @@ function createWindow(): void {
     }
   })
   win.once('ready-to-show', () => win?.show())
+  // Links (README, results) open through `open-external`; the window itself never navigates away or opens others.
+  win.webContents.on('will-navigate', (e, url) => url !== win?.webContents.getURL() && e.preventDefault())
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   if (!isMac) nativeTheme.on('updated', () => win?.setTitleBarOverlay(overlay()))
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)

@@ -51,10 +51,14 @@ Done (quick open, 2026-11-08):
 - ⌘/Ctrl + P (File > Go to File…) opens a fuzzy file switcher over every scratch in the tree (`QuickOpen.svelte`, a native `<dialog>`). With no query, files shown most recently come first and the previous file is preselected, so ⌘P Enter switches back. Up/Down, Enter, Esc and mouse work. File names are bold, folders dimmed, matched characters highlighted.
 - The matcher is `src/renderer/src/fuzzy.ts` (decision 21), unit-tested in `fuzzy.test.ts`. The shortcut is caught by a window capture listener, so Monaco and vim mode (where Ctrl+P is a motion) never swallow it.
 
+Done (README rendering, 2026-11-08):
+- Package READMEs render as Markdown (`src/renderer/src/markdown.ts`, decision 22): headings, code blocks colored with Monaco's tokenizers and scrolling sideways, tables, quotes, lists, task lists, `<details>`, in light and dark.
+- Links open in the browser (https only); `#anchor` links scroll to the heading; relative links resolve against the GitHub or GitLab repository and are dropped for other hosts. Images show as their alt text, linked to the image.
+- Main refuses navigation away from the app page and `window.open` (`will-navigate`, `setWindowOpenHandler`), as a second guard behind the click handler.
+
 Not done yet:
 - Snippets: saving from Settings rewrites `snippets.json` and drops the user's own comments (the explanatory header is rewritten). Monaco's standalone build has no `tabCompletion` (prefix + Tab without the suggestion list), so the list must be open. Snippet variables (`$TM_FILENAME`, `$CLIPBOARD` …) resolve only as far as Monaco's standalone resolvers go.
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
-- README in package details is plain text, not rendered Markdown.
 - Tabs cannot be reordered by dragging yet.
 - Quick open's recent-files order lives in memory only (lost on restart), and files added outside the app appear only after the tree refreshes.
 - `Bun.*` globals have no editor types (add `bun-types` the same way as `@types/node`).
@@ -92,6 +96,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 19 | Runtime errors are **Monaco markers on thrown errors only** | Markers give squiggles, hover and the overview ruler for free and are kept per model, so tabs need no bookkeeping. The runner flags thrown errors and rejections with `thrown: true` on the result event; `console.error` output is a log the user chose to write, so it stays in the results gutter without a squiggle. Hand-made decorations would duplicate what markers already render. | 2026-11-07 |
 | 20 | **User snippets in VS Code's JSON format**, one file in `userData` | Users can paste snippets from VS Code (prefix and body as a string or array, `scope`, tab stops, placeholders, choices) and edit the file by hand; Settings covers the common cases. Main owns the file and rejects edits while it does not parse, so a typo never costs the user their snippets. One global file instead of per-language files keeps v1 simple (decision 5); `scope` still limits a snippet to TS or JS. Snippet suggestions sort inline by match quality (Monaco's default), and win ties with TS suggestions. | 2026-11-07 |
 | 21 | Quick open uses an **in-house fuzzy matcher** | A small dynamic program (about 150 lines, no dependency) picks the best placement of the query: points per matched char, bonuses for consecutive chars and word, camelCase and path-segment starts, a cost per skipped char, and a bonus when the whole query fits in the file name, so name matches beat folder matches. Workspaces are small, so scoring every path per keystroke is cheap. fzf-style libraries (`fzf`, `fuse.js`) were the alternative; they add weight and rank folders and names alike. | 2026-11-08 |
+| 22 | READMEs render with **`marked` + `DOMPurify`**, and **remote images stay blocked** | READMEs are untrusted HTML. DOMPurify is the maintained browser sanitizer and works in the sandboxed renderer; we allowlist tags and attributes (no `style`, `class`, `id`, forms, iframes, SVG), then on an inert `DOMParser` copy keep only https URLs (http upgraded, relative ones resolved against GitHub/GitLab) and turn images into alt-text chips. Together about 80 KB minified. The CSP keeps `img-src 'self' data:`: allowing `https:` would let any README make the app fetch from any host (tracking pixels, IP leaks) for mostly badges. A small image proxy in main could lift this later. Inline handlers in a README make Chromium log a CSP error while parsing; nothing runs. | 2026-11-08 |
 
 ## Electron on macOS and Windows
 
