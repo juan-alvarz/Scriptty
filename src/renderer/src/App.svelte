@@ -13,7 +13,7 @@
   import { registerMissingQuickFix, setMissing } from './missing'
   import { RUNTIME_OWNER, runtimeMarkers } from './markers'
   import QuickOpen from './QuickOpen.svelte'
-  import { DEFAULT_SETTINGS, WIDTH_LIMITS, type RunnerEvent, type Settings, type TreeNode } from '../../shared/protocol'
+  import { DEFAULT_SETTINGS, WIDTH_LIMITS, type RunnerEvent, type SearchMatch, type Settings, type TreeNode } from '../../shared/protocol'
 
   const api = window.scriptty
   const mod = api.platform === 'darwin' ? '⌘' : 'Ctrl+'
@@ -38,6 +38,8 @@
   let quickOpen = $state(false)
   let notice = $state('')
   let view = $state<'results' | 'bundle'>('results')
+  let sideMode = $state<'files' | 'search'>('files')
+  let searchFocus = $state(0)
   let tabs = $state<string[]>([])
   let ready = $state(false)
   // Packages the current file imports that are not installed (from the last run).
@@ -139,6 +141,23 @@
   }
 
   const toggleSidebar = (): Promise<void> => change({ sidebarHidden: !settings.sidebarHidden })
+
+  /** ⇧⌘F: shows the sidebar in Search mode with the query box focused. */
+  function openSearch(): void {
+    if (settings.sidebarHidden) change({ sidebarHidden: false })
+    sideMode = 'search'
+    searchFocus++
+  }
+
+  /** Opens a search hit's file and selects the match. */
+  async function reveal(m: SearchMatch): Promise<void> {
+    await open(m.path)
+    if (!editor || current !== m.path) return
+    const range = new monaco.Range(m.line, m.col, m.line, m.col + m.length)
+    editor.setSelection(range)
+    editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth)
+    editor.focus()
+  }
   const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
 
   function setWidth(which: 'side' | 'res', w: number): void {
@@ -347,6 +366,7 @@
       if (a === 'settings') settingsOpen = true
       else if (a === 'quick-open') quickOpen = true
       else if (a === 'toggle-sidebar') toggleSidebar()
+      else if (a === 'search') openSearch()
       else if (a === 'close-tab') current && closeTab(current)
       else if (a === 'next-tab') cycleTab(1)
       else if (a === 'prev-tab') cycleTab(-1)
@@ -366,6 +386,8 @@
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runNow())
     // Takes ⌘. / Ctrl+. from Quick Fix (still on the lightbulb), so the Stop menu shortcut works while typing.
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Period, stop)
+    // Same as the menu accelerator, bound here too so the editor (and vim mode) never keeps the key for itself.
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, openSearch)
     window.addEventListener('beforeunload', flush)
 
     ;(async () => {
@@ -403,6 +425,11 @@
       {collapsed}
       {notice}
       {mod}
+      mode={sideMode}
+      {searchFocus}
+      onmode={(m) => (sideMode = m)}
+      onflush={flush}
+      onreveal={reveal}
       ontoggle={toggleSidebar}
       oncreate={create}
       onopen={openNode}

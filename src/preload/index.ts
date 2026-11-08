@@ -7,6 +7,8 @@ import type {
   Result,
   RunResponse,
   RunnerEvent,
+  SearchOptions,
+  SearchResult,
   Settings,
   Snippet,
   SnippetsState,
@@ -42,6 +44,7 @@ const api = {
     rename: (rel: string, name: string): Promise<Result<string>> => ipcRenderer.invoke('fs:rename', rel, name),
     trash: (rel: string): Promise<Result> => ipcRenderer.invoke('fs:trash', rel),
     reveal: (rel: string): Promise<Result> => ipcRenderer.invoke('fs:reveal', rel),
+    search: (query: string, o: SearchOptions): Promise<SearchResult> => ipcRenderer.invoke('fs:search', query, o),
     menu: (onItem: boolean): Promise<TreeAction | null> => ipcRenderer.invoke('fs:menu', onItem)
   },
   packages: {

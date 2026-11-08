@@ -12,7 +12,7 @@ import { bundle } from './bundle'
 import { installedIn, missingPackages } from './missing'
 import { SnippetStore } from './snippets'
 import { SAMPLE } from '../shared/sample'
-import type { BundleOptions, MenuAction, Result, RunResponse, Settings, Snippet } from '../shared/protocol'
+import type { BundleOptions, MenuAction, Result, RunResponse, SearchOptions, SearchResult, Settings, Snippet } from '../shared/protocol'
 
 const isMac = process.platform === 'darwin'
 
@@ -156,6 +156,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('fs:rename', safe((rel: string, name: string) => workspace.rename(rel, name)))
   ipcMain.handle('fs:trash', safe((rel: string) => shell.trashItem(workspace.abs(rel))))
   ipcMain.handle('fs:reveal', safe((rel: string) => (rel ? shell.showItemInFolder(workspace.abs(rel)) : void shell.openPath(workspace.root))))
+  // search() reports a bad regex itself; this catch is for a failed read (a file deleted mid-search).
+  ipcMain.handle('fs:search', async (_e, query: string, o: SearchOptions): Promise<SearchResult> => {
+    try {
+      return await workspace.search(String(query ?? ''), { regex: !!o?.regex, caseSensitive: !!o?.caseSensitive, wholeWord: !!o?.wholeWord })
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
   ipcMain.handle('fs:menu', (e, onItem: boolean) => treeMenu(BrowserWindow.fromWebContents(e.sender)!, onItem))
 
   ipcMain.handle('pkg:list', () => packages.list())

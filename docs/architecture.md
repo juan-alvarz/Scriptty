@@ -56,6 +56,11 @@ Done (README rendering, 2026-11-08):
 - Links open in the browser (https only); `#anchor` links scroll to the heading; relative links resolve against the GitHub or GitLab repository and are dropped for other hosts. Images show as their alt text, linked to the image.
 - Main refuses navigation away from the app page and `window.open` (`will-navigate`, `setWindowOpenHandler`), as a second guard behind the click handler.
 
+Done (search, 2026-11-08):
+- Search across all scratches (⇧⌘F / Ctrl+Shift+F, View > Search Scratches): the sidebar switches between Scratches and Search. Match case, whole word and regex toggles (also Alt+C / Alt+W / Alt+R in the box), typing is debounced 200 ms, results are grouped by file with counts and the match highlighted. Clicking a hit opens its tab and selects the match. Decision 23.
+- `Workspace.search` in main (`src/main/workspace.ts`); an invalid regex comes back as `{ ok: false, error }` and is shown under the box. The open file is saved before each search, so unsaved typing is found.
+- The editor also binds ⇧⌘F itself (like ⌘Enter), so Monaco and vim mode never keep the key from the menu.
+
 Not done yet:
 - Snippets: saving from Settings rewrites `snippets.json` and drops the user's own comments (the explanatory header is rewritten). Monaco's standalone build has no `tabCompletion` (prefix + Tab without the suggestion list), so the list must be open. Snippet variables (`$TM_FILENAME`, `$CLIPBOARD` …) resolve only as far as Monaco's standalone resolvers go.
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
@@ -68,6 +73,7 @@ Not done yet:
 - Missing-package check only sees static top-level `import` declarations (what `instrument()` collects), not `export … from`, `import()` or `require()`. The banner and quick fix are not covered by automated UI tests.
 - Runtime error markers span the whole line, not the thrown expression: the stack's column points into the instrumented code (inserted `__r(` text shifts it). A small column map from `instrument` would fix it.
 - Events that arrive between switching tabs and the new run's reply can land on the new tab's model (the results gutter has the same race); the new run's first event clears them.
+- Search has no replace, no include/exclude globs, and no multi-line matches. A pathological regex (catastrophic backtracking) can stall the main process; move search to a `worker_thread` with a timeout if that shows up.
 
 Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26 MB, mostly Monaco).
 
@@ -97,6 +103,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 20 | **User snippets in VS Code's JSON format**, one file in `userData` | Users can paste snippets from VS Code (prefix and body as a string or array, `scope`, tab stops, placeholders, choices) and edit the file by hand; Settings covers the common cases. Main owns the file and rejects edits while it does not parse, so a typo never costs the user their snippets. One global file instead of per-language files keeps v1 simple (decision 5); `scope` still limits a snippet to TS or JS. Snippet suggestions sort inline by match quality (Monaco's default), and win ties with TS suggestions. | 2026-11-07 |
 | 21 | Quick open uses an **in-house fuzzy matcher** | A small dynamic program (about 150 lines, no dependency) picks the best placement of the query: points per matched char, bonuses for consecutive chars and word, camelCase and path-segment starts, a cost per skipped char, and a bonus when the whole query fits in the file name, so name matches beat folder matches. Workspaces are small, so scoring every path per keystroke is cheap. fzf-style libraries (`fzf`, `fuse.js`) were the alternative; they add weight and rank folders and names alike. | 2026-11-08 |
 | 22 | READMEs render with **`marked` + `DOMPurify`**, and **remote images stay blocked** | READMEs are untrusted HTML. DOMPurify is the maintained browser sanitizer and works in the sandboxed renderer; we allowlist tags and attributes (no `style`, `class`, `id`, forms, iframes, SVG), then on an inert `DOMParser` copy keep only https URLs (http upgraded, relative ones resolved against GitHub/GitLab) and turn images into alt-text chips. Together about 80 KB minified. The CSP keeps `img-src 'self' data:`: allowing `https:` would let any README make the app fetch from any host (tracking pixels, IP leaks) for mostly badges. A small image proxy in main could lift this later. Inline handlers in a README make Chromium log a CSP error while parsing; nothing runs. | 2026-11-08 |
+| 23 | Search runs in **main, in JS, over the same files as the editor models** | Reuses `readAll()` and its limits (300 script files, 512 KB each; binary files skipped), so search sees exactly what type-checking sees and needs no new dependency or bundled ripgrep. Matching is per line with a JS `RegExp` (columns are UTF-16 units, the same as Monaco). Results stop at 2000 matches or 200 files and say so. A bad regex is a typed result, not a thrown error. `$` counts as a word character for whole word, since it is one in JS identifiers. Ripgrep or a worker is the upgrade path if workspaces grow. | 2026-11-08 |
 
 ## Electron on macOS and Windows
 

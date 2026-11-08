@@ -62,7 +62,15 @@ export type TreeNode = { name: string; path: string; kind: 'file' | 'folder'; ch
 
 export type TreeAction = 'new-file' | 'new-folder' | 'rename' | 'trash' | 'reveal'
 
-export type MenuAction = 'settings' | 'new-file' | 'new-folder' | 'toggle-sidebar' | 'close-tab' | 'next-tab' | 'prev-tab' | 'stop' | 'quick-open'
+export type MenuAction = 'settings' | 'new-file' | 'new-folder' | 'toggle-sidebar' | 'search' | 'close-tab' | 'next-tab' | 'prev-tab' | 'stop' | 'quick-open'
+
+export type SearchOptions = { regex: boolean; caseSensitive: boolean; wholeWord: boolean }
+
+/** One hit. `line` and `col` are 1-based (Monaco positions); `preview` is the line trimmed around the match, which starts at `previewStart`. */
+export type SearchMatch = { path: string; line: number; col: number; length: number; preview: string; previewStart: number }
+
+/** An invalid regex is `ok: false`, never a thrown error. `truncated` means a cap in SEARCH_LIMITS was hit. */
+export type SearchResult = { ok: true; matches: SearchMatch[]; truncated: boolean } | { ok: false; error: string }
 
 export type PackageInfo = { name: string; version: string }
 
