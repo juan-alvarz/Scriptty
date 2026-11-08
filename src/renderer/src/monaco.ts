@@ -93,6 +93,8 @@ export function createEditor(el: HTMLElement): monaco.editor.IStandaloneCodeEdit
     automaticLayout: true,
     renderLineHighlight: 'line',
     overviewRulerLanes: 0,
+    // Breakpoints: click left of the line numbers (see breakpoints.ts).
+    glyphMargin: true,
     scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 }
   })
   applyTheme()

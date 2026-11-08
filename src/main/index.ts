@@ -3,14 +3,15 @@ import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { writeFile, rm } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { instrument } from './instrument'
-import { Runner } from './runner'
+import { Runner, type DebugRun } from './runner'
+import { DebugSession } from './debugger'
 import { Workspace } from './workspace'
 import { Packages } from './packages'
 import { loadSettings, sanitize, saveSettings } from './settings'
 import { appMenu, treeMenu } from './menu'
 import { bundle } from './bundle'
 import { SAMPLE } from '../shared/sample'
-import type { BundleOptions, MenuAction, Result, RunResponse, Settings } from '../shared/protocol'
+import type { Breakpoints, BundleOptions, DebugCommand, DebugEvent, MenuAction, Result, RunResponse, Settings } from '../shared/protocol'
 
 const isMac = process.platform === 'darwin'
 
@@ -55,6 +56,25 @@ const safe =
 
 let win: BrowserWindow | null = null
 let runner: Runner | null = null
+
+type Debug = { runId: number; run: DebugRun; session: DebugSession | null }
+/** The debug run in progress, if any (decision 17). */
+let dbg: Debug | null = null
+
+const COMMANDS = new Set<DebugCommand>(['continue', 'stepOver', 'stepInto', 'stepOut'])
+const lines = (v: unknown): number[] => (Array.isArray(v) ? v.filter((n): n is number => Number.isInteger(n) && n > 0) : [])
+function breakpointsFrom(v: unknown): Breakpoints {
+  const out: Breakpoints = {}
+  if (v && typeof v === 'object') for (const [k, ls] of Object.entries(v)) out[k] = lines(ls)
+  return out
+}
+
+function timeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(what)), ms)
+    p.then(resolve, reject).finally(() => clearTimeout(t))
+  })
+}
 
 function overlay(): Electron.TitleBarOverlay {
   const dark = nativeTheme.shouldUseDarkColors
@@ -109,26 +129,90 @@ app.whenReady().then(async () => {
   })
 
   let seq = 0
-  let lastFile = ''
+  let lastFiles: string[] = []
+  const sendDebug = (e: DebugEvent): void => win?.webContents.send('debug:event', e)
+  // The first statement of every debug run: it pauses once the import graph is parsed (see debugger.ts).
+  const gate = join(runs, 'debug-gate.ts')
+  writeFileSync(gate, 'debugger;\n')
+
+  /** Instruments the editor's code and writes the copy that runs. The previous run's files go away. */
+  async function prepare(code: string, rel: string) {
+    const ext = extname(rel) || '.ts'
+    const dir = dirname(workspace.abs(rel))
+    // shortcut: instruments on the main thread; move to a worker_thread if large files stall IPC.
+    const r = instrument(code, 'scratch' + ext, dir)
+    if (!r.ok) return r
+    const runId = ++seq
+    const file = join(runs, `run-${runId}${ext}`)
+    await writeFile(file, r.code)
+    for (const f of lastFiles) rm(f, { force: true }).catch(() => {})
+    lastFiles = [file]
+    return { ok: true as const, runId, file, dir, imports: r.imports, names: r.names }
+  }
+  const failed = (e: unknown): RunResponse => ({ ok: false, error: e instanceof Error ? e.message : String(e), line: 0 })
+
   ipcMain.handle('run', async (_e, code: string, rel: string): Promise<RunResponse> => {
     try {
-      const ext = extname(rel) || '.ts'
-      const dir = dirname(workspace.abs(rel))
-      // shortcut: instruments on the main thread; move to a worker_thread if large files stall IPC.
-      const r = instrument(code, 'scratch' + ext, dir)
-      if (!r.ok) return r
-      const runId = ++seq
-      const file = join(runs, `run-${runId}${ext}`)
-      await writeFile(file, r.code)
-      runner!.run(runId, file, r.imports, dir)
-      if (lastFile) rm(lastFile, { force: true }).catch(() => {})
-      lastFile = file
-      return { ok: true, runId }
+      const p = await prepare(code, rel)
+      if (!p.ok) return p
+      runner!.run(p.runId, p.file, p.imports, p.dir)
+      return { ok: true, runId: p.runId }
     } catch (e) {
       // A bad path or a failed write: report it in the status bar instead of rejecting the invoke.
-      return { ok: false, error: e instanceof Error ? e.message : String(e), line: 0 }
+      return failed(e)
     }
   })
+
+  // Debug: its own bun process with the inspector on. Breakpoints only exist here; live runs never pause.
+  ipcMain.handle('debug:start', async (_e, code: string, rel: string, bps: unknown): Promise<RunResponse> => {
+    let d: Debug | null = null
+    try {
+      const p = await prepare(code, rel)
+      if (!p.ok) return p
+      const entry = join(runs, `debug-${p.runId}.ts`)
+      const spec = (f: string): string => JSON.stringify(f.replace(/\\/g, '/'))
+      await writeFile(entry, `import ${spec(gate)}\nimport ${spec(p.file)}\n`)
+      lastFiles.push(entry)
+      const end = (): void => {
+        if (dbg === d) dbg = null
+        d?.session?.dispose()
+        sendDebug({ type: 'ended', runId: p.runId })
+      }
+      const run = runner!.debug(p.runId, p.file, entry, p.dir, () => end())
+      d = { runId: p.runId, run, session: null }
+      dbg = d
+      const url = await timeout(run.url, 10_000, 'The debugger did not start')
+      const session = await DebugSession.attach(url, {
+        runId: p.runId,
+        runFile: p.file,
+        rel,
+        gate,
+        root: workspace.root,
+        names: p.names,
+        breakpoints: breakpointsFrom(bps),
+        onEvent: sendDebug,
+        onHold: (paused) => run.hold(paused)
+      })
+      if (dbg !== d) {
+        session.dispose() // replaced by another run while connecting
+        return { ok: true, runId: p.runId }
+      }
+      d.session = session
+      session.onClosed(() => run.stop())
+      run.start()
+      return { ok: true, runId: p.runId }
+    } catch (e) {
+      d?.run.stop()
+      return failed(e)
+    }
+  })
+  ipcMain.handle('debug:command', (_e, c: DebugCommand) => (COMMANDS.has(c) ? dbg?.session?.command(c).catch(() => {}) : undefined))
+  ipcMain.handle('debug:stop', () => dbg?.run.stop())
+  ipcMain.handle('debug:breakpoints', (_e, rel: string, ls: unknown) =>
+    typeof rel === 'string' ? dbg?.session?.setBreakpoints(rel, lines(ls)).catch(() => {}) : undefined
+  )
+  ipcMain.handle('debug:scopes', safe((i: number) => dbg?.session?.scopes(Number(i)) ?? []))
+  ipcMain.handle('debug:props', safe((objectId: string, type: string) => dbg?.session?.props(String(objectId), String(type)) ?? []))
 
   ipcMain.handle('settings:get', () => settings)
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => {

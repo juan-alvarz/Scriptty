@@ -2,7 +2,7 @@
 
 Scriptty is a desktop scratchpad that runs TypeScript and JavaScript as you type and shows each line's result beside it.
 
-Status: architecture decided (decisions 1 to 15). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
+Status: architecture decided (decisions 1 to 17). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
 
 ## Implementation status
 
@@ -29,7 +29,15 @@ Done (layout, bundle, imports, 2026-11-07):
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
+Done (debugger, 2026-11-08):
+- Debug runs (decision 17): a **Debug** button in the toolbar (F5 or ⌘/Ctrl+Shift+D), separate from the live run. Live as-you-type runs are unchanged and never pause; breakpoints only take effect in a Debug run.
+- Breakpoints: click the editor's glyph margin (red dot; a faint dot previews the spot) or press F9 on the cursor line, at any time. They are Monaco decorations, so they follow their line while you edit, and changes reach a running debug session at once. Breakpoints in scratches the file imports work too.
+- When a debug run stops at a breakpoint or a `debugger;` statement, the line is highlighted (opening the file if it is another scratch) and a Debug panel docks under the results: call stack (click a frame to show its line and variables) and scopes (Local, Closure, Module) with expandable objects, arrays, maps and sets. Continue (F8, or F5 while paused), Step Over (F10), Step Into (F11), Step Out (⇧F11), Stop (⇧F5). The same items are in a Debug menu.
+- Results and logs still stream to the gutter during a debug run. While paused, live runs wait; Stop (or the run's process ending) hands back to live runs with the current text. Editing while the debug run is not paused replaces it with a live run, like any run.
+- Tests spawn real bun with the inspector: breakpoint with locals, step over/out, `debugger;` with object expansion, scope grouping, Step Into past the instrumentation wrappers, breakpoints in an imported file and while running, the watchdog leaving a paused run alone, and Stop.
+
 Not done yet:
+- Debugger: breakpoints are not saved across restarts; no conditional breakpoints, watch expressions or console while paused; no pause-on-exceptions (the host catches every error, so "uncaught" never fires). A busy loop cannot be paused: bun answers the inspector on the JS thread, so the freeze watchdog still ends it. After the top level finishes, a debug run stays attached (for timers and callbacks) until Stop or an edit.
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - README in package details is plain text, not rendered Markdown.
 - Tabs cannot be reordered by dragging yet.
@@ -60,6 +68,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | Debugger: a **Debug run is its own bun process with the inspector**, driven from main over WebSocket | Bun ships a WebKit Inspector Protocol server (`--inspect=127.0.0.1:0/<random path>`); main connects with Node's global `WebSocket`, so no dependency. Live runs keep the warm spare without an inspector, so they never pause and stay as fast as before. Bun reprints every file it loads (comments, blank lines and types go), so lines go through the inline source map it reports; our instrumentation keeps editor lines, so mapping back lands on editor lines. Breakpoints are set from a gate: the debug entry imports a one-line `debugger;` module first, which runs only after the whole import graph is parsed, so every file's map is known and breakpoints are placed by script id before any user code runs. JavaScriptCore reports a module's own scope as empty, so the Module scope evaluates the file's top-level names (from the oxc AST) in the paused frame. Everything outside the workspace (host wrappers, packages) is blackboxed so Step Into skips it. The freeze watchdog is held while paused. A Node-based runner (CDP) was the alternative; it would mean a second runtime and different behaviour from live runs. | 2026-11-08 |
 
 ## Electron on macOS and Windows
 
@@ -125,6 +134,23 @@ Always keep one fresh runner booted and idle. A run takes the spare at once, the
 ### Freeze watchdog (decision 11)
 - The runner sends a heartbeat on a timer. If none arrives for N seconds (Settings > Runtime, "Stop code that freezes for"), main kills it and promotes the spare.
 - Code that is only waiting (servers, `setInterval`, network) keeps running until the next edit replaces it. The status bar shows "Running".
+- A debug run stopped at a breakpoint sends no heartbeats, so the debugger holds the watchdog while paused and restarts its clock on resume (decision 17).
+
+## Debug runs (decision 17)
+
+```
+Renderer ──debug:start(code, file, breakpoints)──▶ Main ──spawn──▶ bun --inspect=127.0.0.1:0/<token> host.ts
+                                                    │  ◀── stderr: ws:// URL
+                                                    ├── WebSocket: Debugger.enable, blackbox non-workspace URLs
+                                                    └── stdin: { run, entry: debug-N.ts }   (results stream as usual)
+debug-N.ts:  import "debug-gate.ts"   ← `debugger;` once the graph is parsed: set breakpoints, resume
+             import "run-N.ts"        ← the instrumented scratch
+```
+
+- `src/main/runner.ts` `debug()`: own process (not the spare), inspector banner kept out of the results, watchdog hold.
+- `src/main/debugger.ts` `DebugSession`: scripts and their source maps, breakpoints by script id, pause and step, scopes and properties as small `DebugValue`s for the renderer.
+- `src/main/inspector.ts`: JSON-RPC over WebSocket. `src/main/sourcemap.ts`: VLQ decode, generated ⇄ source lines.
+- Protocol notes from bun 1.4: `Debugger.setPauseOnDebuggerStatements` must be on for `debugger;` to stop; a step that pauses again sends no `Debugger.resumed`; Step Out resumes at the caller's next statement; `Runtime.getCollectionEntries` lists map and set entries.
 
 ## Run pipeline
 

@@ -9,7 +9,18 @@
   import BundlePanel from './BundlePanel.svelte'
   import StatusBar from './StatusBar.svelte'
   import SettingsDialog from './Settings.svelte'
-  import { DEFAULT_SETTINGS, WIDTH_LIMITS, type RunnerEvent, type Settings, type TreeNode } from '../../shared/protocol'
+  import DebugPanel, { type Paused } from './DebugPanel.svelte'
+  import { allBreakpoints, attachBreakpointMargin, markPaused, toggleBreakpoint } from './breakpoints'
+  import {
+    DEFAULT_SETTINGS,
+    WIDTH_LIMITS,
+    type DebugCommand,
+    type DebugEvent,
+    type MenuAction,
+    type RunnerEvent,
+    type Settings,
+    type TreeNode
+  } from '../../shared/protocol'
 
   const api = window.scriptty
   const mod = api.platform === 'darwin' ? '⌘' : 'Ctrl+'
@@ -39,7 +50,14 @@
   // Live pane widths while dragging; saved to settings when the drag ends.
   let sideW = $state(DEFAULT_SETTINGS.sidebarWidth)
   let resW = $state(DEFAULT_SETTINGS.resultsWidth)
-  let status = $state<{ mode: 'live' | 'running' | 'paused'; info: string }>({ mode: 'live', info: '' })
+  let status = $state<{ mode: 'live' | 'running' | 'paused' | 'debugging'; info: string }>({ mode: 'live', info: '' })
+
+  /** The debug run in progress. Only Debug runs stop at breakpoints; live runs never pause. */
+  type Session = { runId: number; paused: Paused | null; frame: number; finished: boolean }
+  let session = $state<Session | null>(null)
+  const endedRuns = new Set<number>()
+  /** The last debug key handled here, so the same action from the menu's accelerator is not run twice. */
+  let lastKey = { action: '', at: 0 }
 
   let currentRun = -1
   let fresh = false
@@ -79,9 +97,120 @@
     if (e.type === 'result') {
       count++
       resultsPanel.add(e.line, { kind: e.kind, text: e.text, full: e.full })
+    } else if (session?.runId === e.runId) {
+      session.finished = true
+      if (!session.paused) status = { mode: 'debugging', info: `${count} results · finished` }
     } else {
       status = { mode: 'live', info: `${count} results · ${e.ms < 10 ? e.ms.toFixed(2) : Math.round(e.ms)}ms` }
     }
+  }
+
+  /** Debug: runs the current file in its own process with the inspector, stopping at breakpoints. */
+  async function startDebug(): Promise<void> {
+    clearTimeout(runTimer)
+    if (!editor || !current) return
+    status = { mode: 'debugging', info: 'Starting…' }
+    const r = await api.debug.start(editor.getValue(), current, allBreakpoints())
+    if (!r.ok) {
+      status = { mode: 'paused', info: r.line ? `Line ${r.line}: ${r.error}` : r.error }
+      return
+    }
+    startRun(r.runId)
+    // Its first pause can arrive before this reply; the event handler then made the session already.
+    if (!endedRuns.has(r.runId) && (!session || session.runId < r.runId)) session = { runId: r.runId, paused: null, frame: 0, finished: false }
+    if (session?.runId === r.runId && !session.paused) status = { mode: 'debugging', info: 'Running' }
+  }
+
+  async function onDebugEvent(e: DebugEvent): Promise<void> {
+    if (e.type === 'ended') {
+      endedRuns.add(e.runId)
+      if (session?.runId !== e.runId) return
+      session = null
+      markPaused(null)
+      // Stopped (not replaced by a newer run): live runs take over again with the current text.
+      if (e.runId === currentRun) {
+        status = { mode: 'live', info: '' }
+        if (settings.autoRun) runNow()
+      }
+      return
+    }
+    if (e.runId < currentRun || endedRuns.has(e.runId)) return
+    if (session?.runId !== e.runId) session = { runId: e.runId, paused: null, frame: 0, finished: false }
+    if (e.type === 'paused') {
+      clearTimeout(runTimer) // an edit made just before the pause must not replace the paused run
+      session.paused = { reason: e.reason, frames: e.frames }
+      const top = e.frames[0]
+      status = { mode: 'debugging', info: `Paused at ${top.file}:${top.line}` }
+      await showFrame(0)
+    } else {
+      session.paused = null
+      markPaused(null)
+      status = { mode: 'debugging', info: session.finished ? 'Finished' : 'Running' }
+    }
+  }
+
+  /** Shows a call stack frame: opens its file if needed and marks the line. */
+  async function showFrame(i: number): Promise<void> {
+    const f = session?.paused?.frames[i]
+    if (!f || !editor || !session) return
+    session.frame = i
+    if (f.file !== current && findNode(f.file)?.kind === 'file') await open(f.file)
+    markPaused({ rel: f.file, line: f.line, top: i === 0 })
+    if (f.file === current) editor.revealLineInCenterIfOutsideViewport(f.line)
+  }
+
+  function debugCommand(c: DebugCommand): void {
+    if (session?.paused) api.debug.command(c)
+  }
+
+  function stopDebug(): void {
+    if (session) api.debug.stop()
+  }
+
+  /** Breakpoint changes reach a debug run at once; live runs never see them. */
+  function syncBreakpoints(rel: string, lines: number[]): void {
+    if (session) api.debug.setBreakpoints(rel, lines)
+  }
+
+  function toggleBreakpointAtCursor(): void {
+    const model = editor?.getModel()
+    const pos = editor?.getPosition()
+    if (model && pos) syncBreakpoints(current, toggleBreakpoint(model, pos.lineNumber))
+  }
+
+  function debugAction(a: MenuAction): void {
+    if (a === 'debug-start') {
+      if (session?.paused) debugCommand('continue')
+      else if (!session) startDebug()
+    } else if (a === 'debug-stop') stopDebug()
+    else if (a === 'debug-continue') debugCommand('continue')
+    else if (a === 'debug-step-over') debugCommand('stepOver')
+    else if (a === 'debug-step-into') debugCommand('stepInto')
+    else if (a === 'debug-step-out') debugCommand('stepOut')
+    else if (a === 'toggle-breakpoint') toggleBreakpointAtCursor()
+  }
+
+  /**
+   * Debug keys, caught before Monaco (it binds F8 to "next problem"). The menu shows the same keys; on macOS a
+   * key the page handles never reaches the menu, and elsewhere the menu does not register them.
+   */
+  function onDebugKey(e: KeyboardEvent): void {
+    if (e.altKey) return
+    const cmd = api.platform === 'darwin' ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+    const plain = !e.metaKey && !e.ctrlKey
+    let a: MenuAction | null = null
+    if (cmd && e.shiftKey && e.key.toLowerCase() === 'd') a = 'debug-start'
+    else if (!plain) return
+    else if (e.key === 'F5') a = e.shiftKey ? 'debug-stop' : 'debug-start'
+    else if (e.key === 'F8' && !e.shiftKey && session?.paused) a = 'debug-continue'
+    else if (e.key === 'F9' && !e.shiftKey) a = 'toggle-breakpoint'
+    else if (e.key === 'F10' && !e.shiftKey) a = 'debug-step-over'
+    else if (e.key === 'F11') a = e.shiftKey ? 'debug-step-out' : 'debug-step-into'
+    if (!a) return
+    e.preventDefault()
+    e.stopPropagation()
+    lastKey = { action: a, at: Date.now() }
+    debugAction(a)
   }
 
   async function flush(): Promise<void> {
@@ -208,7 +337,8 @@
     resultsPanel.reset()
     settings = await api.settings.set({ lastFile: rel, openFiles: [...tabs] })
     editor.focus()
-    runNow()
+    // While paused, opening a file (the debugger may do it for a frame) must not replace the paused run.
+    if (!session?.paused) runNow()
     if (view === 'bundle') bundlePanel.refresh()
   }
 
@@ -312,8 +442,11 @@
     editor = ed
 
     const off = api.onEvent(onRunnerEvent)
+    const offDebug = api.debug.onEvent(onDebugEvent)
     const offMenu = api.onMenu((a) => {
-      if (a === 'settings') settingsOpen = true
+      if (a.startsWith('debug-') || a === 'toggle-breakpoint') {
+        if (lastKey.action !== a || Date.now() - lastKey.at > 300) debugAction(a)
+      } else if (a === 'settings') settingsOpen = true
       else if (a === 'toggle-sidebar') toggleSidebar()
       else if (a === 'close-tab') current && closeTab(current)
       else if (a === 'next-tab') cycleTab(1)
@@ -325,12 +458,15 @@
       pendingSave = { rel: current, content: ed.getValue() }
       clearTimeout(saveTimer)
       saveTimer = setTimeout(flush, 400)
-      if (settings.autoRun) {
+      // Live runs wait while the debugger is paused; they take over again when the session ends.
+      if (settings.autoRun && !session?.paused) {
         clearTimeout(runTimer)
         runTimer = setTimeout(runNow, settings.runDelayMs)
       }
     })
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runNow())
+    const margin = attachBreakpointMargin(ed, syncBreakpoints)
+    window.addEventListener('keydown', onDebugKey, true)
     window.addEventListener('beforeunload', flush)
 
     ;(async () => {
@@ -351,7 +487,10 @@
 
     return () => {
       off()
+      offDebug()
       offMenu()
+      margin.dispose()
+      window.removeEventListener('keydown', onDebugKey, true)
       ed.dispose()
     }
   })
@@ -395,10 +534,13 @@
     <Toolbar
       sidebarHidden={settings.sidebarHidden}
       autoRun={settings.autoRun}
+      debugging={!!session}
       {mod}
       ontogglesidebar={toggleSidebar}
       ontoggleautorun={() => change({ autoRun: !settings.autoRun })}
       onrun={runNow}
+      ondebug={startDebug}
+      onstopdebug={stopDebug}
       onsettings={() => (settingsOpen = true)}
     />
 
@@ -432,6 +574,16 @@
         </div>
         <ResultsPanel bind:this={resultsPanel} {editor} fontSize={settings.fontSize} hidden={view !== 'results'} stale={status.mode === 'paused'} />
         <BundlePanel bind:this={bundlePanel} file={current} hidden={view !== 'bundle'} />
+        {#if session}
+          <DebugPanel
+            paused={session.paused}
+            finished={session.finished}
+            frame={session.frame}
+            oncommand={debugCommand}
+            onstop={stopDebug}
+            onselect={showFrame}
+          />
+        {/if}
       </div>
     </div>
 

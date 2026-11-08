@@ -1,11 +1,11 @@
 <script lang="ts">
   import { languageOf } from './monaco'
 
-  type Status = { mode: 'live' | 'running' | 'paused'; info: string }
+  type Status = { mode: 'live' | 'running' | 'paused' | 'debugging'; info: string }
   type Props = { status: Status; file: string; tabSize: number; vimEl?: HTMLSpanElement }
   let { status, file, tabSize, vimEl = $bindable() }: Props = $props()
 
-  const modeLabel = { live: 'Live', running: 'Running', paused: 'Paused' }
+  const modeLabel = { live: 'Live', running: 'Running', paused: 'Paused', debugging: 'Debugging' }
 </script>
 
 <footer class="sb">
@@ -60,5 +60,8 @@
   }
   .dot.running {
     background: var(--warn);
+  }
+  .dot.debugging {
+    background: var(--accent);
   }
 </style>
