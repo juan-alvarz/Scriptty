@@ -194,9 +194,14 @@
   .offer code {
     font: 11px var(--mono);
   }
+  /* The sidebar can be 160px wide: buttons share the row and wrap rather than overflow. */
   .actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
+  }
+  .actions .btn {
+    flex: 1 1 auto;
   }
   .rm {
     border: 0;
