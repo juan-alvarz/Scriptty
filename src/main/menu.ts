@@ -1,10 +1,20 @@
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
-import type { MenuAction, TreeAction } from '../shared/protocol'
+import type { TreeAction } from '../shared/protocol'
+import { ACTIONS, type ActionId, type Bindings } from '../shared/keybindings'
 
 const isMac = process.platform === 'darwin'
 
-export function appMenu(send: (a: MenuAction) => void): Menu {
-  const settings: MenuItemConstructorOptions = { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('settings') }
+/**
+ * The menu shows each action's current shortcut. The keys themselves are matched in main's
+ * before-input-event (index.ts), whose preventDefault also keeps the accelerator here from firing twice.
+ */
+export function appMenu(send: (a: ActionId) => void, keys: Bindings): Menu {
+  const item = (id: ActionId, label: string = ACTIONS.find((a) => a.id === id)!.label): MenuItemConstructorOptions => ({
+    label,
+    accelerator: keys[id] || undefined,
+    click: () => send(id)
+  })
+  const settings = item('settings', 'Settings…')
   const template: MenuItemConstructorOptions[] = [
     ...(isMac
       ? [
@@ -29,12 +39,12 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
     {
       label: 'File',
       submenu: [
-        { label: 'New File', accelerator: 'CmdOrCtrl+N', click: () => send('new-file') },
-        { label: 'New Folder', accelerator: 'Shift+CmdOrCtrl+N', click: () => send('new-folder') },
+        item('new-file'),
+        item('new-folder'),
         { type: 'separator' },
-        { label: 'Go to File…', accelerator: 'CmdOrCtrl+P', click: () => send('quick-open') },
+        item('quick-open', 'Go to File…'),
         { type: 'separator' },
-        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => send('close-tab') },
+        item('close-tab'),
         ...(isMac
           ? [{ label: 'Close Window', accelerator: 'Shift+Cmd+W', role: 'close' } as const]
           : [{ type: 'separator' } as const, settings, { type: 'separator' } as const, { role: 'quit' } as const])
@@ -44,11 +54,16 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
     {
       label: 'View',
       submenu: [
-        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => send('toggle-sidebar') },
-        { label: 'Search Scratches', accelerator: 'Shift+CmdOrCtrl+F', click: () => send('search') },
+        item('toggle-sidebar'),
+        item('search'),
         { type: 'separator' },
-        { label: 'Next Tab', accelerator: 'Ctrl+Tab', click: () => send('next-tab') },
-        { label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab', click: () => send('prev-tab') },
+        item('next-tab'),
+        item('prev-tab'),
+        { type: 'separator' },
+        item('split-right'),
+        item('focus-split-1'),
+        item('focus-split-2'),
+        item('focus-split-3'),
         { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' },
@@ -62,8 +77,7 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
     },
     {
       label: 'Run',
-      // ⌘. / Ctrl+. is Quick Fix in Monaco; the editor rebinds it to Stop too (App.svelte), so both agree.
-      submenu: [{ label: 'Stop', accelerator: 'CmdOrCtrl+.', click: () => send('stop') }]
+      submenu: [item('run'), item('stop')]
     },
     { role: 'windowMenu' }
   ]

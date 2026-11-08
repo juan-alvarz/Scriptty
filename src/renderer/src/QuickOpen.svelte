@@ -6,7 +6,6 @@
   let { open = $bindable(), tree, current, tabs, onopen }: Props = $props()
 
   const LIMIT = 200
-  const mac = window.scriptty.platform === 'darwin'
   let dialog: HTMLDialogElement
   let list = $state<HTMLUListElement>()
   let query = $state('')
@@ -42,20 +41,6 @@
 
   $effect(() => {
     list?.children[active]?.scrollIntoView({ block: 'nearest' })
-  })
-
-  // ⌘P / Ctrl+P from anywhere, caught before Monaco (and vim mode, where Ctrl+P is a motion) sees it.
-  // The File menu item has the same accelerator; either path only opens the palette.
-  $effect(() => {
-    const onkey = (e: KeyboardEvent): void => {
-      const modOnly = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
-      if (!modOnly || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'p') return
-      e.preventDefault()
-      e.stopPropagation()
-      open = true
-    }
-    window.addEventListener('keydown', onkey, true)
-    return () => window.removeEventListener('keydown', onkey, true)
   })
 
   function choose(i: number): void {

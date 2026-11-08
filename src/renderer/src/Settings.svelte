@@ -1,14 +1,17 @@
 <script lang="ts">
   import type { Settings } from '../../shared/protocol'
   import SnippetsPane from './SnippetsPane.svelte'
+  import KeysPane from './KeysPane.svelte'
+  import { withKey } from './keys.svelte'
 
   type Props = { open: boolean; settings: Settings; root: string; onchange: (p: Partial<Settings>) => void; onclose: () => void }
   let { open, settings, root, onchange, onclose }: Props = $props()
 
-  type Tab = 'general' | 'editor' | 'snippets' | 'runtime'
+  type Tab = 'general' | 'editor' | 'keys' | 'snippets' | 'runtime'
   const tabs: { id: Tab; label: string }[] = [
     { id: 'general', label: 'General' },
     { id: 'editor', label: 'Editor' },
+    { id: 'keys', label: 'Keyboard Shortcuts' },
     { id: 'snippets', label: 'Snippets' },
     { id: 'runtime', label: 'Runtime' }
   ]
@@ -81,7 +84,7 @@
               <input id="s-vim" type="checkbox" class="tog" checked={settings.vim} onchange={(e) => onchange({ vim: e.currentTarget.checked })} />
             </div>
             <div class="row">
-              <label for="s-auto">Run as you type<small>Off means ⌘↵ runs the file</small></label>
+              <label for="s-auto">Run as you type<small>Off means you run the file with {withKey('Run', 'run')}</small></label>
               <input id="s-auto" type="checkbox" class="tog" checked={settings.autoRun} onchange={(e) => onchange({ autoRun: e.currentTarget.checked })} />
             </div>
             <div class="row">
@@ -89,6 +92,8 @@
               <input id="s-delay" type="number" min="0" max="2000" step="20" value={settings.runDelayMs} onchange={(e) => onchange({ runDelayMs: num(e) })} />
             </div>
           </div>
+        {:else if tab === 'keys'}
+          <KeysPane {open} overrides={settings.keybindings} onchange={(keybindings) => onchange({ keybindings })} />
         {:else if tab === 'snippets'}
           <SnippetsPane />
         {:else if tab === 'runtime'}

@@ -1,4 +1,5 @@
 // Messages between main and the bun runner (JSON lines), and types shared with the renderer.
+import type { Overrides } from './keybindings'
 
 export type ResultKind = 'value' | 'log' | 'warn' | 'error'
 
@@ -33,10 +34,12 @@ export type Settings = {
   autoRun: boolean
   runDelayMs: number
   freezeSeconds: number
-  /** Workspace-relative path of the last open file. */
-  lastFile: string
-  /** Workspace-relative paths of open tabs, in order. */
-  openFiles: string[]
+  /** Editor splits, left to right: workspace-relative paths of each one's tabs, in order, and its shown file. */
+  splits: Split[]
+  /** Index in `splits` of the focused split. */
+  activeSplit: number
+  /** Shortcuts the user changed (Settings > Keyboard Shortcuts); '' unbinds an action. */
+  keybindings: Overrides
   sidebarHidden: boolean
   sidebarWidth: number
   resultsWidth: number
@@ -50,8 +53,9 @@ export const DEFAULT_SETTINGS: Settings = {
   autoRun: true,
   runDelayMs: 260,
   freezeSeconds: 5,
-  lastFile: 'scratch.ts',
-  openFiles: [],
+  splits: [],
+  activeSplit: 0,
+  keybindings: {},
   sidebarHidden: false,
   sidebarWidth: 220,
   resultsWidth: 420
@@ -62,7 +66,10 @@ export type TreeNode = { name: string; path: string; kind: 'file' | 'folder'; ch
 
 export type TreeAction = 'new-file' | 'new-folder' | 'rename' | 'trash' | 'reveal'
 
-export type MenuAction = 'settings' | 'new-file' | 'new-folder' | 'toggle-sidebar' | 'search' | 'close-tab' | 'next-tab' | 'prev-tab' | 'stop' | 'quick-open'
+export type Split = { files: string[]; current: string }
+
+/** Most editor splits side by side (one Focus Split shortcut each). */
+export const MAX_SPLITS = 3
 
 export type SearchOptions = { regex: boolean; caseSensitive: boolean; wholeWord: boolean }
 

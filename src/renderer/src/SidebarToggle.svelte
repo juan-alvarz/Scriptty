@@ -1,10 +1,11 @@
 <script lang="ts">
-  let { hidden, mod, ontoggle }: { hidden: boolean; mod: string; ontoggle: () => void } = $props()
+  import { withKey } from './keys.svelte'
+  let { hidden, ontoggle }: { hidden: boolean; ontoggle: () => void } = $props()
 </script>
 
 <!-- Lives inside the drag strips (like the toolbar buttons) so its no-drag reliably wins.
      Rendered in the sidebar strip or the toolbar, both 80px from the window edge, so it never moves. -->
-<button class="sidetoggle" title="{hidden ? 'Show' : 'Hide'} sidebar ({mod}B)" aria-label="Toggle sidebar" aria-pressed={!hidden} onclick={ontoggle}>
+<button class="sidetoggle" title={withKey(`${hidden ? 'Show' : 'Hide'} sidebar`, 'toggle-sidebar')} aria-label="Toggle sidebar" aria-pressed={!hidden} onclick={ontoggle}>
   <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><path d="M9.5 4.5v15" /></svg>
 </button>
 

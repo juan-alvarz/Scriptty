@@ -12,7 +12,8 @@ import { bundle } from './bundle'
 import { installedIn, missingPackages } from './missing'
 import { SnippetStore } from './snippets'
 import { SAMPLE } from '../shared/sample'
-import type { BundleOptions, MenuAction, Result, RunResponse, SearchOptions, SearchResult, Settings, Snippet } from '../shared/protocol'
+import type { BundleOptions, Result, RunResponse, SearchOptions, SearchResult, Settings, Snippet } from '../shared/protocol'
+import { byShortcut, resolve, shortcutOf, type ActionId } from '../shared/keybindings'
 
 const isMac = process.platform === 'darwin'
 
@@ -57,6 +58,34 @@ const safe =
 
 let win: BrowserWindow | null = null
 let runner: Runner | null = null
+// Shortcut to action, from the settings; and the pending Settings > Keyboard Shortcuts recording, if any.
+let keyActions = new Map<string, ActionId>()
+let recorder: ((shortcut: string | null) => void) | null = null
+
+function endRecording(shortcut: string | null): void {
+  const r = recorder
+  recorder = null
+  r?.(shortcut)
+}
+
+/**
+ * Every app shortcut is matched here, before the page sees the key, so Monaco and vim mode can never
+ * consume one. preventDefault also stops the menu accelerator, so an action never runs twice.
+ */
+function onKey(e: Electron.Event, input: Electron.Input): void {
+  if (input.type !== 'keyDown') return
+  const k = shortcutOf({ key: input.key, code: input.code, ctrl: input.control, alt: input.alt, shift: input.shift, meta: input.meta }, isMac)
+  if (recorder) {
+    if (!k) return // a modifier on its own: keep waiting for the key
+    e.preventDefault()
+    endRecording(k === 'Escape' ? null : k)
+    return
+  }
+  const action = k && keyActions.get(k)
+  if (!action) return
+  e.preventDefault()
+  win?.webContents.send('menu', action)
+}
 
 function overlay(): Electron.TitleBarOverlay {
   const dark = nativeTheme.shouldUseDarkColors
@@ -83,6 +112,9 @@ function createWindow(): void {
     }
   })
   win.once('ready-to-show', () => win?.show())
+  win.webContents.on('before-input-event', onKey)
+  // A reload mid-recording must not leave main swallowing the next key.
+  win.webContents.on('did-start-loading', () => endRecording(null))
   // Links (README, results) open through `open-external`; the window itself never navigates away or opens others.
   win.webContents.on('will-navigate', (e, url) => url !== win?.webContents.getURL() && e.preventDefault())
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -138,14 +170,29 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('stop', () => runner?.stop() ?? false)
 
+  const applyKeys = (): void => {
+    const keys = resolve(settings.keybindings, isMac)
+    keyActions = byShortcut(keys)
+    Menu.setApplicationMenu(appMenu((a) => win?.webContents.send('menu', a), keys))
+  }
+  applyKeys()
+
   ipcMain.handle('settings:get', () => settings)
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => {
+    const before = settings.keybindings
     settings = sanitize(patch, settings)
     saveSettings(settingsFile, settings)
     nativeTheme.themeSource = settings.appearance
     runner?.setFreezeMs(settings.freezeSeconds * 1000)
+    if (settings.keybindings !== before) applyKeys()
     return settings
   })
+  // Resolves with the next shortcut pressed in the window (null for Esc or a cancel). App shortcuts are off meanwhile.
+  ipcMain.handle('keys:record', () => {
+    endRecording(null)
+    return new Promise<string | null>((r) => (recorder = r))
+  })
+  ipcMain.handle('keys:cancel', () => endRecording(null))
 
   ipcMain.handle('fs:root', () => workspace.root)
   ipcMain.handle('fs:tree', safe(() => workspace.tree()))
@@ -203,7 +250,6 @@ app.whenReady().then(async () => {
   // Only web links leave the app; anything else (file:, custom schemes) is refused.
   ipcMain.handle('open-external', (_e, url: string) => (/^https:\/\//.test(url) ? shell.openExternal(url) : undefined))
 
-  Menu.setApplicationMenu(appMenu((a: MenuAction) => win?.webContents.send('menu', a)))
   createWindow()
   app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow())
 })

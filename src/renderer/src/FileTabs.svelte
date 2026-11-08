@@ -1,6 +1,15 @@
 <script lang="ts">
-  type Props = { tabs: string[]; current: string; mod: string; onopen: (rel: string) => void; onclose: (rel: string) => void }
-  let { tabs, current, mod, onopen, onclose }: Props = $props()
+  import { withKey } from './keys.svelte'
+
+  type Props = {
+    tabs: string[]
+    current: string
+    onopen: (rel: string) => void
+    onclose: (rel: string) => void
+    /** A tab started dragging (onto a split's edge, to split or move it). */
+    ondragtab: (e: DragEvent, rel: string) => void
+  }
+  let { tabs, current, onopen, onclose, ondragtab }: Props = $props()
 
   let el: HTMLDivElement
 
@@ -21,11 +30,11 @@
 <div class="colhead filetabs" role="tablist" aria-label="Open files" bind:this={el}>
   {#each tabs as t (t)}
     {@const l = labelOf(t)}
-    <div class="ftab" class:on={t === current} title={t}>
+    <div class="ftab" class:on={t === current} title={t} role="presentation" draggable="true" ondragstart={(e) => ondragtab(e, t)}>
       <button role="tab" class="fname" aria-selected={t === current} onclick={() => onopen(t)} onauxclick={(e) => e.button === 1 && onclose(t)}>
         {l.name}{#if l.dir}<span class="fdir">{l.dir}</span>{/if}
       </button>
-      <button class="fx" aria-label="Close {t}" title="Close ({mod}W)" onclick={() => onclose(t)}>×</button>
+      <button class="fx" aria-label="Close {t}" title={withKey('Close', 'close-tab')} onclick={() => onclose(t)}>×</button>
     </div>
   {/each}
 </div>

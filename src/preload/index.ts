@@ -2,7 +2,6 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
   Added,
   BundleOptions,
-  MenuAction,
   PackageList,
   PackageDetails,
   Result,
@@ -17,6 +16,7 @@ import type {
   TreeNode,
   TypeLib
 } from '../shared/protocol'
+import type { ActionId } from '../shared/keybindings'
 
 function listen<T>(channel: string, cb: (m: T) => void): () => void {
   const h = (_e: IpcRendererEvent, m: T): void => cb(m)
@@ -30,7 +30,8 @@ const api = {
   /** Stops the active run. Resolves false if nothing was running. */
   stop: (): Promise<boolean> => ipcRenderer.invoke('stop'),
   onEvent: (cb: (e: RunnerEvent) => void) => listen('runner:event', cb),
-  onMenu: (cb: (a: MenuAction) => void) => listen('menu', cb),
+  /** App actions, from a shortcut (matched in main) or the menu. */
+  onMenu: (cb: (a: ActionId) => void) => listen('menu', cb),
   settings: {
     get: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
     set: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke('settings:set', patch)
@@ -66,6 +67,11 @@ const api = {
     open: (): Promise<void> => ipcRenderer.invoke('snippets:open'),
     reveal: (): Promise<void> => ipcRenderer.invoke('snippets:reveal'),
     onChange: (cb: (s: SnippetsState) => void) => listen('snippets:changed', cb)
+  },
+  keys: {
+    /** Resolves with the next shortcut pressed, or null for Esc or cancel(). App shortcuts do nothing meanwhile. */
+    record: (): Promise<string | null> => ipcRenderer.invoke('keys:record'),
+    cancel: (): Promise<void> => ipcRenderer.invoke('keys:cancel')
   },
   bundle: (rel: string, o: BundleOptions): Promise<Result<string>> => ipcRenderer.invoke('bundle', rel, o),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url)

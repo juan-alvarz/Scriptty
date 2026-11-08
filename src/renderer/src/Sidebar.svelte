@@ -4,6 +4,7 @@
   import Search from './Search.svelte'
   import Packages from './Packages.svelte'
   import SidebarToggle from './SidebarToggle.svelte'
+  import { withKey } from './keys.svelte'
 
   type Props = {
     tree: TreeNode[]
@@ -12,7 +13,6 @@
     renaming: string
     collapsed: Record<string, boolean>
     notice: string
-    mod: string
     mode: 'files' | 'search'
     /** Bumped to focus the search box (⇧⌘F). */
     searchFocus: number
@@ -34,7 +34,7 @@
 </script>
 
 <aside class="side">
-  <div class="drag traffic"><SidebarToggle hidden={false} mod={p.mod} ontoggle={p.ontoggle} /></div>
+  <div class="drag traffic"><SidebarToggle hidden={false} ontoggle={p.ontoggle} /></div>
   <section
     class="scratches"
     role="group"
@@ -48,14 +48,14 @@
     <div class="sh">
       <div class="modes" role="tablist" aria-label="Sidebar">
         <button role="tab" aria-selected={p.mode === 'files'} onclick={() => p.onmode('files')}>Scratches</button>
-        <button role="tab" aria-selected={p.mode === 'search'} title="Search all scratches (⇧{p.mod}F)" onclick={() => p.onmode('search')}>Search</button>
+        <button role="tab" aria-selected={p.mode === 'search'} title={withKey('Search all scratches', 'search')} onclick={() => p.onmode('search')}>Search</button>
       </div>
       <span class="sp"></span>
       {#if p.mode === 'files'}
-        <button class="mini" title="New file ({p.mod}N)" aria-label="New file" onclick={() => p.oncreate('file')}>
+        <button class="mini" title={withKey('New file', 'new-file')} aria-label="New file" onclick={() => p.oncreate('file')}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h5l3 3v9H4z M9 2v3h3 M8 8v4 M6 10h4" /></svg>
         </button>
-        <button class="mini" title="New folder (⇧{p.mod}N)" aria-label="New folder" onclick={() => p.oncreate('folder')}>
+        <button class="mini" title={withKey('New folder', 'new-folder')} aria-label="New folder" onclick={() => p.oncreate('folder')}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h4l1.5 1.5H14V13H2z M8 7.5v4 M6 9.5h4" /></svg>
         </button>
       {/if}
