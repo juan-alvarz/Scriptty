@@ -1,10 +1,12 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { writeFile, rm } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { instrument } from './instrument'
 import { Runner } from './runner'
 import { Workspace } from './workspace'
+import { EnvFiles } from './env'
 import { Packages } from './packages'
 import { loadSettings, sanitize, saveSettings } from './settings'
 import { appMenu, treeMenu } from './menu'
@@ -40,6 +42,15 @@ function packagesDir(): { dir: string; runs: string } {
   rmSync(runs, { recursive: true, force: true })
   mkdirSync(runs)
   return { dir, runs }
+}
+
+/** Opens a file in the OS default app; `.env` often has none, so fall back to the system text editor. */
+async function openInEditor(path: string): Promise<void> {
+  const error = await shell.openPath(path)
+  if (!error) return
+  const [cmd, args] = isMac ? ['open', ['-t', path]] : process.platform === 'win32' ? ['notepad.exe', [path]] : ['', []]
+  if (!cmd) throw new Error(error)
+  await new Promise<void>((done, fail) => spawn(cmd, args, { detached: true, stdio: 'ignore' }).on('spawn', done).on('error', fail).unref())
 }
 
 /** Wraps a handler so failures reach the renderer as a readable Result instead of a rejected invoke. */
@@ -99,6 +110,7 @@ app.whenReady().then(async () => {
   const { dir, runs } = packagesDir()
   const workspace = new Workspace(join(app.getPath('documents'), 'Scriptty'))
   await workspace.ensure(SAMPLE)
+  const envFiles = new EnvFiles(workspace.root)
   const packages = new Packages(dir, bun, join(userData, 'bun-cache'))
   runner = new Runner({
     bun,
@@ -119,8 +131,9 @@ app.whenReady().then(async () => {
       if (!r.ok) return r
       const runId = ++seq
       const file = join(runs, `run-${runId}${ext}`)
-      await writeFile(file, r.code)
-      runner!.run(runId, file, r.imports, dir)
+      // .env values are secrets: they go to the runner only, never to a log or the renderer.
+      const [env] = await Promise.all([envFiles.load(dir), writeFile(file, r.code)])
+      runner!.run(runId, file, r.imports, dir, env)
       if (lastFile) rm(lastFile, { force: true }).catch(() => {})
       lastFile = file
       return { ok: true, runId }
@@ -148,6 +161,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('fs:rename', safe((rel: string, name: string) => workspace.rename(rel, name)))
   ipcMain.handle('fs:trash', safe((rel: string) => shell.trashItem(workspace.abs(rel))))
   ipcMain.handle('fs:reveal', safe((rel: string) => (rel ? shell.showItemInFolder(workspace.abs(rel)) : void shell.openPath(workspace.root))))
+  ipcMain.handle('fs:edit-env', safe(async (dirRel: string) => openInEditor(await workspace.envFile(dirRel))))
   ipcMain.handle('fs:menu', (e, onItem: boolean) => treeMenu(BrowserWindow.fromWebContents(e.sender)!, onItem))
 
   ipcMain.handle('pkg:list', () => packages.list())

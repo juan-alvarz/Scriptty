@@ -1,4 +1,4 @@
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -23,6 +23,19 @@ describe('workspace', () => {
     const tree = await ws.tree()
     expect(tree.map((n) => n.path)).toEqual(['utils', 'scratch.ts'])
     expect(tree[0].children?.map((n) => n.name)).toEqual(['untitled 2.ts', 'untitled.ts'])
+  })
+
+  it('creates a .env on demand, keeps an existing one, and hides it from the tree', async () => {
+    const abs = await ws.envFile('utils')
+    expect(abs).toBe(join(ws.root, 'utils', '.env'))
+    expect(readFileSync(abs, 'utf8')).toMatch(/^# Variables/)
+    writeFileSync(abs, 'FOO=1')
+    expect(await ws.envFile('utils')).toBe(abs)
+    expect(readFileSync(abs, 'utf8')).toBe('FOO=1')
+    expect(await ws.envFile('')).toBe(join(ws.root, '.env'))
+    await expect(ws.envFile('scratch.ts')).rejects.toThrow(/Not a folder/)
+    await expect(ws.envFile('..')).rejects.toThrow(/outside/)
+    expect((await ws.tree()).map((n) => n.path)).toEqual(['utils', 'scratch.ts'])
   })
 
   it('refuses paths outside the workspace and bad names', async () => {

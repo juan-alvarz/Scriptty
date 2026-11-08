@@ -286,6 +286,14 @@
     else if (action === 'rename' && node) renaming = node.path
     else if (action === 'trash' && node) trash(node)
     else if (action === 'reveal') api.fs.reveal(node?.path ?? '')
+    else if (action === 'edit-env') editEnv(node)
+  }
+
+  /** The `.env` for a folder, or for a file's own folder; the empty area means the workspace root. */
+  async function editEnv(node: TreeNode | null): Promise<void> {
+    const dir = !node ? '' : node.kind === 'folder' ? node.path : node.path.slice(0, Math.max(0, node.path.lastIndexOf('/')))
+    const r = await api.fs.editEnv(dir)
+    notice = r.ok ? '' : r.error
   }
 
   function openNode(n: TreeNode): void {
