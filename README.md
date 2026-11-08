@@ -7,7 +7,7 @@ A desktop scratchpad for TypeScript and JavaScript. It runs your code as you typ
 - **Live results**: every line's value, `console.log` output and errors show in the results gutter as you type. Click a result for the full, pretty-printed output.
 - **Stop**: end a run that keeps going (servers, intervals) with Run > Stop, the toolbar's Stop button, or ⌘. / Ctrl+.
 - **Runtime error markers**: thrown errors and rejections get a red squiggle on their line, with the error and stack in the hover.
-- **Scratches are plain files** in `~/Documents/Scriptty`, with folders, a file tree, tabs (restored on launch) and autosave.
+- **Scratches are plain files** in `~/Documents/Scriptty`, with folders, a file tree, tabs (drag to reorder, restored on launch) and autosave.
 - **Quick open**: ⌘P / Ctrl+P opens a fuzzy file switcher over every scratch. ⌘P Enter switches back to the previous file.
 - **Search across scratches**: ⇧⌘F / Ctrl+Shift+F, with match case, whole word and regex toggles. Click a hit to open it.
 - **Packages**: add and remove npm packages from the Packages panel. Their types load into the editor, so imports autocomplete and type-check.
@@ -29,6 +29,7 @@ A desktop scratchpad for TypeScript and JavaScript. It runs your code as you typ
 | Toggle sidebar | ⌘B | Ctrl+B |
 | Close tab | ⌘W | Ctrl+W |
 | Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab | Ctrl+Tab / Ctrl+Shift+Tab |
+| Move tab left / right | ⌘⇧PageUp / ⌘⇧PageDown | Ctrl+Shift+PageUp / PageDown |
 | Settings | ⌘, | Ctrl+, |
 
 ## Development

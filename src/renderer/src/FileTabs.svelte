@@ -17,6 +17,8 @@
   // A press on a tab; it becomes a drag only after DRAG_THRESHOLD px, so clicks and middle-clicks stay as they were.
   let press: { from: number; id: number; x0: number; x: number } | null = null
   let dragging = $state(-1) // index of the tab being dragged
+  // Floating copy of the dragged tab: its size, where it was grabbed, and the pointer it follows (client px).
+  let ghost = $state<{ w: number; h: number; dx: number; dy: number; x: number; y: number } | null>(null)
   let gap = $state(-1) // insertion gap under the pointer, -1 when the drop would change nothing
   let barX = $state(0) // indicator position in the strip's scrolled content
   let frame = 0
@@ -34,9 +36,15 @@
     if (dragging < 0) {
       if (Math.abs(press.x - press.x0) < DRAG_THRESHOLD) return
       dragging = press.from
+      const r = el.querySelectorAll('.ftab')[press.from].getBoundingClientRect()
+      ghost = { w: r.width, h: r.height, dx: press.x0 - r.left, dy: e.clientY - r.top, x: 0, y: 0 }
       // Capture only now: capturing on press would retarget the click away from the tab button.
       el.setPointerCapture(press.id)
       frame = requestAnimationFrame(scrollLoop)
+    }
+    if (ghost) {
+      ghost.x = e.clientX
+      ghost.y = e.clientY
     }
     track()
   }
@@ -78,6 +86,7 @@
     press = null
     dragging = -1
     gap = -1
+    ghost = null
   }
 
   const onkeydown = (e: KeyboardEvent): void => {
@@ -133,6 +142,19 @@
   {/each}
   {#if gap >= 0}<div class="drop" style="left: {barX}px" aria-hidden="true"></div>{/if}
 </div>
+{#if ghost && dragging >= 0}
+  {@const t = tabs[dragging]}
+  {@const l = labelOf(t)}
+  <div
+    class="ftab ghost"
+    class:on={t === current}
+    style="width: {ghost.w}px; height: {ghost.h}px; left: {ghost.x - ghost.dx}px; top: {ghost.y - ghost.dy}px"
+    aria-hidden="true"
+  >
+    <span class="fname">{l.name}{#if l.dir}<span class="fdir">{l.dir}</span>{/if}</span>
+    <span class="fx">×</span>
+  </div>
+{/if}
 
 <style>
   .filetabs {
@@ -216,7 +238,26 @@
     cursor: grabbing;
   }
   .ftab.lifted {
-    opacity: 0.5;
+    opacity: 0.35;
+  }
+  /* The dragged tab, following the pointer; fixed so the strip's overflow does not clip it. */
+  .ghost {
+    position: fixed;
+    z-index: 1000;
+    pointer-events: none;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-bottom: 2px solid var(--accent);
+    border-radius: 4px 4px 0 0;
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
+    opacity: 0.95;
+    cursor: grabbing;
+  }
+  .ghost .fx {
+    display: grid;
+    place-items: center;
+    opacity: 1;
   }
   /* Insertion indicator: sits on the gap the dragged tab would drop into. */
   .drop {
