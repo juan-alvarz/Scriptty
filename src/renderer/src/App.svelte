@@ -9,14 +9,36 @@
   import BundlePanel from './BundlePanel.svelte'
   import StatusBar from './StatusBar.svelte'
   import SettingsDialog from './Settings.svelte'
+  import DebugPanel, { type Paused } from './DebugPanel.svelte'
+  import {
+    allBreakpoints,
+    attachBreakpointMargin,
+    clearBreakpoints,
+    listBreakpoints,
+    markPaused,
+    removeBreakpoint,
+    toggleBreakpoint,
+    type BreakpointItem
+  } from './breakpoints'
+  import { moveTab, stepIndex } from './tabs'
   import MissingBanner from './MissingBanner.svelte'
   import { registerMissingQuickFix, setMissing } from './missing'
   import { RUNTIME_OWNER, runtimeMarkers } from './markers'
   import QuickOpen from './QuickOpen.svelte'
   import { keymap, mac } from './keys.svelte'
-  import { focusAfterClose, type FileDrag, type Zone } from './splits'
+  import { dropZone, focusAfterClose, type FileDrag, type Zone } from './splits'
   import { ACTIONS, resolve, toMonaco, type ActionId, type Bindings } from '../../shared/keybindings'
-  import { DEFAULT_SETTINGS, MAX_SPLITS, WIDTH_LIMITS, type RunnerEvent, type SearchMatch, type Settings, type TreeNode } from '../../shared/protocol'
+  import {
+    DEFAULT_SETTINGS,
+    MAX_SPLITS,
+    WIDTH_LIMITS,
+    type DebugCommand,
+    type DebugEvent,
+    type RunnerEvent,
+    type SearchMatch,
+    type Settings,
+    type TreeNode
+  } from '../../shared/protocol'
 
   const api = window.scriptty
 
@@ -49,7 +71,10 @@
   let settingsOpen = $state(false)
   let quickOpen = $state(false)
   let notice = $state('')
-  let view = $state<'results' | 'bundle'>('results')
+  let view = $state<'results' | 'bundle' | 'debugger'>('results')
+  /** Every breakpoint, for the Debugger tab (decorations move with edits, so this is refreshed on change). */
+  let bps = $state<BreakpointItem[]>([])
+  const refreshBps = (): void => void (bps = listBreakpoints())
   let sideMode = $state<'files' | 'search'>('files')
   let searchFocus = $state(0)
   let ready = $state(false)
@@ -65,7 +90,12 @@
   // Live pane widths while dragging; saved to settings when the drag ends.
   let sideW = $state(DEFAULT_SETTINGS.sidebarWidth)
   let resW = $state(DEFAULT_SETTINGS.resultsWidth)
-  let status = $state<{ mode: 'live' | 'running' | 'paused' | 'stopped'; info: string }>({ mode: 'live', info: '' })
+  let status = $state<{ mode: 'live' | 'running' | 'paused' | 'debugging' | 'stopped'; info: string }>({ mode: 'live', info: '' })
+
+  /** The debug run in progress. Only Debug runs stop at breakpoints; live runs never pause. */
+  type Session = { runId: number; paused: Paused | null; frame: number; finished: boolean }
+  let session = $state<Session | null>(null)
+  const endedRuns = new Set<number>()
 
   let currentRun = -1
   let fresh = false
@@ -124,11 +154,100 @@
       markers.add(e)
       // Output after `done` means timers or a server are still going, so offer Stop again.
       if (status.mode === 'live') status = { mode: 'running', info: status.info }
+    } else if (session?.runId === e.runId) {
+      session.finished = true
+      if (!session.paused) status = { mode: 'debugging', info: `${count} results · finished` }
     } else if (e.stopped) {
       status = { mode: 'stopped', info: `${count} results` }
     } else {
       status = { mode: 'live', info: `${count} results · ${e.ms < 10 ? e.ms.toFixed(2) : Math.round(e.ms)}ms` }
     }
+  }
+
+  /** Debug: runs the focused split's file in its own process with the inspector, stopping at breakpoints. */
+  async function startDebug(): Promise<void> {
+    clearTimeout(runTimer)
+    if (!editor || !current) return
+    status = { mode: 'debugging', info: 'Starting…' }
+    const r = await api.debug.start(editor.getValue(), current, allBreakpoints())
+    if (!r.ok) {
+      status = { mode: 'paused', info: r.line ? `Line ${r.line}: ${r.error}` : r.error }
+      return
+    }
+    if (r.runId >= currentRun) setMissing((missing = r.missing))
+    startRun(r.runId)
+    // Its first pause can arrive before this reply; the event handler then made the session already.
+    if (!endedRuns.has(r.runId) && (!session || session.runId < r.runId)) session = { runId: r.runId, paused: null, frame: 0, finished: false }
+    if (session?.runId === r.runId && !session.paused) status = { mode: 'debugging', info: 'Running' }
+  }
+
+  async function onDebugEvent(e: DebugEvent): Promise<void> {
+    if (e.type === 'ended') {
+      endedRuns.add(e.runId)
+      if (session?.runId !== e.runId) return
+      session = null
+      markPaused(null)
+      // Stopped (not replaced by a newer run): live runs take over again with the current text.
+      if (e.runId === currentRun) {
+        status = { mode: 'live', info: '' }
+        if (settings.autoRun) runNow()
+      }
+      return
+    }
+    if (e.runId < currentRun || endedRuns.has(e.runId)) return
+    if (session?.runId !== e.runId) session = { runId: e.runId, paused: null, frame: 0, finished: false }
+    if (e.type === 'paused') {
+      clearTimeout(runTimer) // an edit made just before the pause must not replace the paused run
+      session.paused = { reason: e.reason, frames: e.frames }
+      view = 'debugger'
+      const top = e.frames[0]
+      status = { mode: 'debugging', info: `Paused at ${top.file}:${top.line}` }
+      await showFrame(0)
+    } else {
+      session.paused = null
+      markPaused(null)
+      status = { mode: 'debugging', info: session.finished ? 'Finished' : 'Running' }
+    }
+  }
+
+  /** Shows a call stack frame: opens its file in the focused split if needed and marks the line (in every split showing it). */
+  async function showFrame(i: number): Promise<void> {
+    const f = session?.paused?.frames[i]
+    if (!f || !session) return
+    session.frame = i
+    if (f.file !== current && findNode(f.file)?.kind === 'file') await open(f.file)
+    markPaused({ rel: f.file, line: f.line, top: i === 0 })
+    if (f.file === current) editor?.revealLineInCenterIfOutsideViewport(f.line)
+  }
+
+  function debugCommand(c: DebugCommand): void {
+    if (session?.paused) api.debug.command(c)
+  }
+
+  function stopDebug(): void {
+    if (session) api.debug.stop()
+  }
+
+  /** Breakpoint changes reach a debug run at once; live runs never see them. */
+  function syncBreakpoints(rel: string, lines: number[]): void {
+    refreshBps()
+    if (session) api.debug.setBreakpoints(rel, lines)
+  }
+
+  function clearAllBreakpoints(): void {
+    for (const rel of clearBreakpoints()) syncBreakpoints(rel, [])
+    refreshBps()
+  }
+
+  /** Opens a breakpoint's file in the focused split and puts the cursor on its line. */
+  function jumpTo(rel: string, line: number): Promise<void> {
+    return goTo(rel, { lineNumber: line, column: 1 })
+  }
+
+  function toggleBreakpointAtCursor(): void {
+    const model = editor?.getModel()
+    const pos = editor?.getPosition()
+    if (model && pos) syncBreakpoints(current, toggleBreakpoint(model, pos.lineNumber))
   }
 
   async function flush(): Promise<void> {
@@ -145,17 +264,19 @@
   function edited(id: number, ed: monaco.editor.IStandaloneCodeEditor): void {
     const rel = byId(id)?.current
     if (!rel) return
+    if (bps.length) refreshBps()
     if (pendingSave && pendingSave.rel !== rel) flush()
     pendingSave = { rel, content: ed.getValue() }
     clearTimeout(saveTimer)
     saveTimer = setTimeout(flush, 400)
-    if (settings.autoRun && id === activeId) {
+    // Live runs wait while the debugger is paused; they take over again when the session ends.
+    if (settings.autoRun && id === activeId && !session?.paused) {
       clearTimeout(runTimer)
       runTimer = setTimeout(runNow, settings.runDelayMs)
     }
   }
 
-  async function showView(v: 'results' | 'bundle'): Promise<void> {
+  async function showView(v: 'results' | 'bundle' | 'debugger'): Promise<void> {
     view = v
     if (v === 'bundle') {
       await flush()
@@ -180,12 +301,19 @@
   }
 
   /** Opens a search hit's file and selects the match. */
-  async function reveal(m: SearchMatch): Promise<void> {
-    await open(m.path)
-    if (!editor || current !== m.path) return
-    const range = new monaco.Range(m.line, m.col, m.line, m.col + m.length)
-    editor.setSelection(range)
-    editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth)
+  function reveal(m: SearchMatch): Promise<void> {
+    return goTo(m.path, new monaco.Range(m.line, m.col, m.line, m.col + m.length))
+  }
+
+  /** Opens `rel` in the focused split and selects `at` (a range or a cursor position), scrolled into view. */
+  async function goTo(rel: string, at?: monaco.IRange | monaco.IPosition): Promise<void> {
+    await open(rel)
+    if (!editor || current !== rel) return
+    if (at) {
+      const range = 'startLineNumber' in at ? monaco.Range.lift(at) : monaco.Range.fromPositions(at)
+      editor.setSelection(range)
+      editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth)
+    }
     editor.focus()
   }
   const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
@@ -238,7 +366,8 @@
     const g = byId(id)
     if (g?.current) {
       selected = g.current
-      runNow()
+      // While paused, showing a file (the debugger may do it for a frame) must not replace the paused run.
+      if (!session?.paused) runNow()
       if (view === 'bundle') bundlePanel.refresh()
     } else {
       bundlePanel.clear()
@@ -285,6 +414,15 @@
     editors.get(g.id)?.focus()
   }
 
+  /** Where a tab dragged off its strip would land: the split under the pointer and the zone in it. */
+  let tabHover = $state<{ id: number; zone: Zone } | null>(null)
+  function splitAt(at: { x: number; y: number } | null): { id: number; zone: Zone } | null {
+    const ed = at && document.elementFromPoint(at.x, at.y)?.closest<HTMLElement>('[data-split] .editor')
+    if (!at || !ed) return null
+    const r = ed.getBoundingClientRect()
+    return { id: Number(ed.closest<HTMLElement>('[data-split]')!.dataset.split), zone: dropZone(at.x - r.left, r.width, groups.length < MAX_SPLITS) }
+  }
+
   /** A file dropped on split `target`: its edges open a new split there, its middle opens the file in it. Tabs move; tree files open. */
   async function dropFile(target: number, zone: Zone, d: FileDrag): Promise<void> {
     const at = groups.findIndex((g) => g.id === target) + (zone === 'right' ? 1 : 0)
@@ -325,6 +463,21 @@
     if (tabs.length < 2) return
     const i = tabs.indexOf(current)
     open(tabs[(i + step + tabs.length) % tabs.length])
+  }
+
+  /** Drag reorder within split `id`. */
+  function reorder(from: number, to: number, id = activeId): void {
+    const g = byId(id)
+    if (!g) return
+    g.tabs = moveTab(g.tabs, from, to)
+    saveLayout()
+  }
+
+  /** Move Tab Left / Right: moves the focused split's current tab one place, stopping at the ends. */
+  function stepTab(step: number): void {
+    const i = tabs.indexOf(current)
+    const to = stepIndex(tabs.length, i, step)
+    if (to >= 0) reorder(i, to)
   }
 
   async function refreshTree(): Promise<void> {
@@ -408,6 +561,7 @@
     for (const m of viewStates.values()) for (const k of [...m.keys()]) if (remap(k) !== k) m.delete(k)
     disposeModels(node.path)
     await refreshTree()
+    refreshBps()
     selected = r.value
     for (const m of moved) {
       const g = byId(m.id)
@@ -432,6 +586,7 @@
     for (const a of affected) closeEditor(a.id)
     disposeModels(node.path)
     await refreshTree()
+    refreshBps()
     selected = ''
     for (const a of affected) {
       const g = byId(a.id)
@@ -488,10 +643,21 @@
     'close-tab': () => current && closeTab(current),
     'next-tab': () => cycleTab(1),
     'prev-tab': () => cycleTab(-1),
+    'move-tab-left': () => stepTab(-1),
+    'move-tab-right': () => stepTab(1),
     'split-right': () => current && split(groups.findIndex((g) => g.id === activeId) + 1, current),
     'focus-split-1': () => focusSplit(0),
     'focus-split-2': () => focusSplit(1),
     'focus-split-3': () => focusSplit(2),
+    'debug-start': () => (session?.paused ? debugCommand('continue') : !session && startDebug()),
+    'debug-start-alt': () => actions['debug-start'](),
+    'debug-stop': stopDebug,
+    // Not paused: the key keeps Monaco's meaning of F8 (next problem), as before the registry.
+    'debug-continue': () => (session?.paused ? debugCommand('continue') : editor?.trigger('keyboard', 'editor.action.marker.nextInFiles', null)),
+    'debug-step-over': () => debugCommand('stepOver'),
+    'debug-step-into': () => debugCommand('stepInto'),
+    'debug-step-out': () => debugCommand('stepOut'),
+    'toggle-breakpoint': toggleBreakpointAtCursor,
     settings: () => (settingsOpen = true)
   }
 
@@ -524,7 +690,11 @@
     applyTo(ed, settings)
     showVimFor(editor)
     bindPalette(ed, untrack(() => keymap.map))
-    const subs = [ed.onDidChangeModelContent(() => edited(id, ed)), ed.onDidFocusEditorText(() => focusGroup(id))]
+    const subs = [
+      ed.onDidChangeModelContent(() => edited(id, ed)),
+      ed.onDidFocusEditorText(() => focusGroup(id)),
+      attachBreakpointMargin(ed, syncBreakpoints)
+    ]
     return () => {
       subs.forEach((s) => s.dispose())
       palette.get(ed)?.forEach((d) => d.dispose())
@@ -555,6 +725,17 @@
 
   onMount(() => {
     const off = api.onEvent(onRunnerEvent)
+    const offDebug = api.debug.onEvent(onDebugEvent)
+    // Go to definition (⌘/Ctrl+click, F12) into another scratch: Monaco only switches within one model, so open it
+    // in the focused split (the click focused the split it came from). Package and lib .d.ts files have no model
+    // here, so those are left to Monaco (nothing opens).
+    const offOpener = monaco.editor.registerEditorOpener({
+      openCodeEditor(_source, resource, at) {
+        if (resource.scheme !== 'file' || resource.path.startsWith('/node_modules/')) return false
+        void goTo(resource.path.slice(1), at)
+        return true
+      }
+    })
     const offFix = registerMissingQuickFix(monaco, (names) => missingBanner.install(names))
     const offMenu = api.onMenu((a) => actions[a]?.())
     window.addEventListener('beforeunload', flush)
@@ -573,8 +754,10 @@
 
     return () => {
       off()
+      offDebug()
       offMenu()
       offFix.dispose()
+      offOpener.dispose()
     }
   })
 </script>
@@ -648,6 +831,13 @@
             onclose={(rel) => closeTab(rel, g.id)}
             oncreate={() => (focusGroup(g.id), create('file'))}
             ondrop={(zone, d) => dropFile(g.id, zone, d)}
+            onmove={(from, to) => reorder(from, to, g.id)}
+            ontabdrag={(_rel, at) => (tabHover = splitAt(at))}
+            ontabdrop={(path, at) => {
+              const h = splitAt(at)
+              if (h) dropFile(h.id, h.zone, { path, from: g.id })
+            }}
+            hover={tabHover?.id === g.id ? tabHover.zone : null}
           />
         {/each}
       </div>
@@ -664,9 +854,31 @@
         <div class="colhead tabs" role="tablist" aria-label="Right panel">
           <button role="tab" aria-selected={view === 'results'} onclick={() => showView('results')}>Results</button>
           <button role="tab" aria-selected={view === 'bundle'} onclick={() => showView('bundle')}>Bundle</button>
+          <button role="tab" aria-selected={view === 'debugger'} onclick={() => showView('debugger')}>
+            Debugger
+            {#if session?.paused}<i class="tabdot" title="Paused"></i>{/if}
+            {#if bps.length}<span class="badge" title="{bps.length} breakpoint{bps.length === 1 ? '' : 's'}">{bps.length}</span>{/if}
+          </button>
         </div>
         <ResultsPanel bind:this={resultsPanel} {editor} fontSize={settings.fontSize} hidden={view !== 'results'} stale={status.mode === 'paused'} />
         <BundlePanel bind:this={bundlePanel} file={current} hidden={view !== 'bundle'} />
+        <DebugPanel
+          hidden={view !== 'debugger'}
+          active={!!session}
+          paused={session?.paused ?? null}
+          finished={session?.finished ?? false}
+          frame={session?.frame ?? 0}
+          oncommand={debugCommand}
+          onstop={stopDebug}
+          onselect={showFrame}
+          watches={settings.watches}
+          onwatches={async (w) => (settings = await api.settings.set({ watches: w }))}
+          breakpoints={bps}
+          onstart={startDebug}
+          onjump={jumpTo}
+          onremove={(rel, line) => syncBreakpoints(rel, removeBreakpoint(rel, line))}
+          onclear={clearAllBreakpoints}
+        />
       </div>
     </div>
 
@@ -726,6 +938,28 @@
   }
   .tabs button + button {
     border-left: 1px solid var(--line);
+  }
+  .badge {
+    display: inline-block;
+    min-width: 16px;
+    margin-left: 5px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--err) 85%, transparent);
+    color: #fff;
+    font-size: 10px;
+    line-height: 16px;
+    font-weight: 600;
+    box-sizing: border-box;
+  }
+  .tabdot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 5px;
+    border-radius: 50%;
+    background: var(--warn);
+    vertical-align: middle;
   }
   .tabs button:hover {
     color: var(--fg);

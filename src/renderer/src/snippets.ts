@@ -102,8 +102,9 @@ export function toSuggestions(snippets: Snippet[], language: string, lineBefore:
         insertText: s.body,
         detail: s.description || s.name,
         documentation: '```' + language + '\n' + preview(s.body) + '\n```',
-        // "0" sorts before the TS service's sortTexts ("10" and up), so a snippet wins ties with an equally good match.
-        sortText: '0' + prefix,
+        // "~" sorts after the TS service's sortTexts (digits, "z" for deprecated), so on a tie (nothing typed
+        // yet, e.g. inside an object literal) properties and variables come first.
+        sortText: '~' + prefix,
         startColumn: prefixStart(lineBefore, prefix) || wordStart
       })
     }

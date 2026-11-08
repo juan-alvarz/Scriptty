@@ -141,3 +141,47 @@ dialog {
 dialog::backdrop {
   background: rgba(20, 22, 26, 0.32);
 }
+
+/* Debugger decorations in the editor (breakpoints.ts). Monaco owns these elements, so they live here. */
+.monaco-editor .bp-glyph,
+.monaco-editor .bp-hover,
+.monaco-editor .dbg-arrow,
+.monaco-editor .dbg-frame-arrow {
+  cursor: pointer;
+}
+.monaco-editor .bp-glyph::before,
+.monaco-editor .bp-hover::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: var(--err);
+}
+/* Monaco merges glyph decorations of one line into one element, so the hint must not dim a real breakpoint. */
+.monaco-editor .bp-hover:not(.bp-glyph)::before {
+  opacity: 0.35;
+}
+.monaco-editor .dbg-arrow::after,
+.monaco-editor .dbg-frame-arrow::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  margin: -5px 0 0 -3px;
+  border: 5px solid transparent;
+  border-left: 7px solid var(--warn);
+  border-right: 0;
+}
+.monaco-editor .dbg-frame-arrow::after {
+  border-left-color: var(--muted);
+}
+.monaco-editor .dbg-line {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+}
+.monaco-editor .dbg-frame {
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+}

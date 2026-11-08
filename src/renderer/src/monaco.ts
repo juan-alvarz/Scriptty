@@ -4,6 +4,7 @@ import TsWorker from 'monaco-editor/language/typescript/ts.worker.js?worker'
 import { initVimMode, type VimAdapterInstance } from 'monaco-vim'
 import type { Snippet, TypeLib } from '../../shared/protocol'
 import { toSuggestions } from './snippets'
+import { pathSuggestions } from './importPaths'
 
 self.MonacoEnvironment = {
   getWorker: (_id: string, label: string) =>
@@ -61,16 +62,65 @@ let packageNames: string[] = []
 export function setPackageNames(names: string[]): void {
   packageNames = names
 }
+const IMPORT_PATH = /(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s*|\brequire\s*\(\s*)['"]([^'"]*)$/
 for (const language of ['typescript', 'javascript']) {
   monaco.languages.registerCompletionItemProvider(language, {
-    triggerCharacters: ["'", '"'],
+    triggerCharacters: ["'", '"', '/'],
     provideCompletionItems(model, position) {
       const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
-      const m = /(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s*|\brequire\s*\(\s*)['"]([^'"]*)$/.exec(before)
+      const m = IMPORT_PATH.exec(before)
       if (!m) return { suggestions: [] }
-      const range = new monaco.Range(position.lineNumber, position.column - m[1].length, position.lineNumber, position.column)
+      const spec = m[1]
+      if (spec.startsWith('.')) {
+        // Relative paths: the other scratches, from their models (the TS worker cannot list folders).
+        const partial = spec.slice(spec.lastIndexOf('/') + 1)
+        const range = new monaco.Range(position.lineNumber, position.column - partial.length, position.lineNumber, position.column)
+        const paths = monaco.editor.getModels().filter((x) => x.uri.scheme === 'file').map((x) => x.uri.path)
+        const { File, Folder } = monaco.languages.CompletionItemKind
+        const again = { id: 'editor.action.triggerSuggest', title: 'Suggest' }
+        return {
+          suggestions: pathSuggestions(model.uri.path, spec, paths).map((s) => ({
+            label: s.folder ? s.name + '/' : s.name,
+            kind: s.folder ? Folder : File,
+            insertText: s.folder ? s.name + '/' : s.name,
+            range,
+            // Folders first, then files.
+            sortText: (s.folder ? '0' : '1') + s.name,
+            command: s.folder ? again : undefined
+          }))
+        }
+      }
+      const range = new monaco.Range(position.lineNumber, position.column - spec.length, position.lineNumber, position.column)
       const kind = monaco.languages.CompletionItemKind.Module
       return { suggestions: packageNames.map((name) => ({ label: name, kind, insertText: name, range, detail: 'Installed package' })) }
+    }
+  })
+}
+
+// Monaco's TS adapter only triggers on `.`, so `f('|')` got no list for a string-literal union until a
+// letter was typed. On a quote, ask the TS worker ourselves and keep only its string-literal entries.
+for (const language of ['typescript', 'javascript'] as const) {
+  monaco.languages.registerCompletionItemProvider(language, {
+    triggerCharacters: ["'", '"', '`'],
+    async provideCompletionItems(model, position, context) {
+      if (context.triggerKind !== monaco.languages.CompletionTriggerKind.TriggerCharacter) return { suggestions: [] }
+      const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
+      if (IMPORT_PATH.test(before)) return { suggestions: [] }
+      const getWorker = language === 'typescript' ? ts.getTypeScriptWorker : ts.getJavaScriptWorker
+      const worker = await (await getWorker())(model.uri)
+      const info = await worker.getCompletionsAtPosition(model.uri.toString(), model.getOffsetAt(position))
+      const kind = monaco.languages.CompletionItemKind.Value
+      type Entry = { name: string; kind: string; sortText: string; replacementSpan?: { start: number; length: number } }
+      const suggestions = ((info?.entries ?? []) as Entry[])
+        .filter((e) => e.kind === 'string')
+        .map((e) => {
+          const span = e.replacementSpan
+          const start = span ? model.getPositionAt(span.start) : position
+          const end = span ? model.getPositionAt(span.start + span.length) : position
+          const range = new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column)
+          return { label: e.name, kind, insertText: e.name, range, sortText: e.sortText }
+        })
+      return { suggestions }
     }
   })
 }
@@ -139,6 +189,8 @@ export function createEditor(el: HTMLElement): monaco.editor.IStandaloneCodeEdit
     hideCursorInOverviewRuler: true,
     // Hover and suggest boxes escape the editor's overflow: hidden box (a hover on line 1 was cut off by the tab bar).
     fixedOverflowWidgets: true,
+    // Breakpoints: click left of the line numbers (see breakpoints.ts).
+    glyphMargin: true,
     scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 }
   })
   applyTheme()

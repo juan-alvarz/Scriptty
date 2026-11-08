@@ -112,7 +112,8 @@ for await (const raw of console) {
     }
     const t0 = performance.now()
     try {
-      await import(Bun.pathToFileURL(m.file).href)
+      // Debug runs import a wrapper that pauses first, so the debugger can set breakpoints (see debugger.ts).
+      await import(Bun.pathToFileURL(m.entry ?? m.file).href)
     } catch (e) {
       sendError(e)
     }

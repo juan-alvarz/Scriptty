@@ -3,7 +3,8 @@ import { parseSync, visitorKeys } from 'oxc-parser'
 import MagicString from 'magic-string'
 
 export type Instrumented =
-  | { ok: true; code: string; imports: string[] }
+  /** `names`: the file's top-level bindings, which the debugger shows as the Module scope. */
+  | { ok: true; code: string; imports: string[]; names: string[] }
   | { ok: false; error: string; line: number }
 
 type Node = { type: string; start: number; end: number; [key: string]: unknown }
@@ -51,7 +52,36 @@ export function instrument(source: string, filename = 'scratch.ts', baseDir?: st
     }
   }
 
-  return { ok: true, code: s.toString(), imports: [...imports] }
+  return { ok: true, code: s.toString(), imports: [...imports], names: declaredNames(program as unknown as Node) }
+}
+
+/** Top-level runtime bindings of a file (types, `declare` and type-only imports left out). Empty if it fails to parse. */
+export function topLevelNames(source: string, filename: string): string[] {
+  const { program, errors } = parseSync(filename, source)
+  return errors.length ? [] : declaredNames(program as unknown as Node)
+}
+
+function declaredNames(program: Node): string[] {
+  const names = new Set<string>()
+  const add = (id: unknown): void => void ((id as Node | null)?.type === 'Identifier' && names.add((id as unknown as { name: string }).name))
+  const pattern = (p: Node | null): void => {
+    if (!p) return
+    if (p.type === 'Identifier') add(p)
+    else if (p.type === 'ObjectPattern') for (const q of p.properties as Node[]) pattern((q.type === 'RestElement' ? q.argument : q.value) as Node)
+    else if (p.type === 'ArrayPattern') for (const q of p.elements as (Node | null)[]) pattern(q)
+    else if (p.type === 'AssignmentPattern') pattern(p.left as Node)
+    else if (p.type === 'RestElement') pattern(p.argument as Node)
+  }
+  const decl = (n: Node | null): void => {
+    if (!n || n.declare) return
+    if (n.type === 'VariableDeclaration') for (const d of n.declarations as Node[]) pattern(d.id as Node)
+    else if (n.type === 'FunctionDeclaration' || n.type === 'ClassDeclaration' || n.type === 'TSEnumDeclaration') add(n.id)
+    else if (n.type === 'ImportDeclaration' && n.importKind !== 'type') {
+      for (const sp of (n.specifiers ?? []) as Node[]) if (sp.importKind !== 'type') add(sp.local)
+    } else if (n.type === 'ExportNamedDeclaration' || n.type === 'ExportDefaultDeclaration') decl(n.declaration as Node | null)
+  }
+  for (const n of (program as unknown as { body: Node[] }).body) decl(n)
+  return [...names]
 }
 
 const IMPORT_NODES = new Set(['ImportDeclaration', 'ExportNamedDeclaration', 'ExportAllDeclaration', 'ImportExpression'])

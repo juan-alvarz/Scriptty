@@ -59,6 +59,8 @@ export function appMenu(send: (a: ActionId) => void, keys: Bindings): Menu {
         { type: 'separator' },
         item('next-tab'),
         item('prev-tab'),
+        item('move-tab-left'),
+        item('move-tab-right'),
         { type: 'separator' },
         item('split-right'),
         item('focus-split-1'),
@@ -78,6 +80,20 @@ export function appMenu(send: (a: ActionId) => void, keys: Bindings): Menu {
     {
       label: 'Run',
       submenu: [item('run'), item('stop')]
+    },
+    {
+      label: 'Debug',
+      submenu: [
+        item('debug-start'),
+        item('debug-stop'),
+        { type: 'separator' },
+        item('debug-continue'),
+        item('debug-step-over'),
+        item('debug-step-into'),
+        item('debug-step-out'),
+        { type: 'separator' },
+        item('toggle-breakpoint')
+      ]
     },
     { role: 'windowMenu' }
   ]

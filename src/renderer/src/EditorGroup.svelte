@@ -19,8 +19,15 @@
     onclose: (rel: string) => void
     oncreate: () => void
     ondrop: (zone: Zone, d: FileDrag) => void
+    /** Tab drag reorder within this split. */
+    onmove: (from: number, to: number) => void
+    /** One of this split's tabs is being dragged off its strip (null when it comes back or ends), or was dropped there. */
+    ontabdrag: (rel: string, at: { x: number; y: number } | null) => void
+    ontabdrop: (rel: string, at: { x: number; y: number }) => void
+    /** Where a tab dragged from any split would land on this one, for the overlay. */
+    hover: Zone | null
   }
-  let { id, tabs, current, dimmed, canSplit, ready, mount, onfocus, onopen, onclose, oncreate, ondrop }: Props = $props()
+  let { id, tabs, current, dimmed, canSplit, ready, mount, onfocus, onopen, onclose, oncreate, ondrop, onmove, ontabdrag, ontabdrop, hover }: Props = $props()
 
   let hostEl: HTMLDivElement
   let zone = $state<Zone | null>(null)
@@ -52,16 +59,10 @@
     const d = readDrag(e.dataTransfer!.getData(FILE_DRAG))
     if (d) ondrop(z, d)
   }
-
-  function dragTab(e: DragEvent, rel: string): void {
-    if (!e.dataTransfer) return
-    e.dataTransfer.setData(FILE_DRAG, JSON.stringify({ path: rel, from: id } satisfies FileDrag))
-    e.dataTransfer.effectAllowed = 'move'
-  }
 </script>
 
-<section class="group" class:dimmed onpointerdowncapture={onfocus} aria-label="Editor split">
-  <FileTabs {tabs} {current} {onopen} {onclose} ondragtab={dragTab} />
+<section class="group" class:dimmed data-split={id} onpointerdowncapture={onfocus} aria-label="Editor split">
+  <FileTabs {tabs} {current} {onopen} {onclose} {onmove} ondragout={ontabdrag} ondropout={ontabdrop} />
   <div class="editor" role="presentation" ondragentercapture={over} ondragovercapture={over} ondragleavecapture={leave} ondropcapture={drop}>
     <div class="host" bind:this={hostEl}></div>
     {#if ready && !current}
@@ -71,7 +72,7 @@
         <button class="tbtn" onclick={oncreate}>{withKey('New file', 'new-file')}</button>
       </div>
     {/if}
-    {#if zone}<div class="drop {zone}" aria-hidden="true"></div>{/if}
+    {#if zone ?? hover}<div class="drop {zone ?? hover}" aria-hidden="true"></div>{/if}
   </div>
 </section>
 

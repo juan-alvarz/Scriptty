@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs'
-import { DEFAULT_SETTINGS, MAX_SPLITS, WIDTH_LIMITS, type Settings, type Split } from '../shared/protocol'
+import { DEFAULT_SETTINGS, MAX_SPLITS, WATCH_LIMITS, WIDTH_LIMITS, type Settings, type Split } from '../shared/protocol'
 import { sanitizeOverrides } from '../shared/keybindings'
 
 const isMac = process.platform === 'darwin'
@@ -23,6 +23,15 @@ function splitsOf(input: Partial<Settings> & { openFiles?: unknown; lastFile?: u
     .slice(0, MAX_SPLITS)
 }
 
+/** Watch expressions from settings or the renderer: non-empty strings within WATCH_LIMITS; null if not a list. */
+export function watchList(x: unknown): string[] | null {
+  if (!Array.isArray(x)) return null
+  return x
+    .filter((w): w is string => typeof w === 'string' && !!w.trim() && w.length <= WATCH_LIMITS.length)
+    .map((w) => w.trim())
+    .slice(0, WATCH_LIMITS.count)
+}
+
 /** Validates every field, so a hand-edited or old settings.json can never break the app. */
 export function sanitize(input: Partial<Settings>, base: Settings = DEFAULT_SETTINGS, mac = isMac): Settings {
   const s = { ...base, ...input }
@@ -40,7 +49,8 @@ export function sanitize(input: Partial<Settings>, base: Settings = DEFAULT_SETT
     keybindings: 'keybindings' in input ? sanitizeOverrides(input.keybindings, mac) : base.keybindings,
     sidebarHidden: typeof s.sidebarHidden === 'boolean' ? s.sidebarHidden : base.sidebarHidden,
     sidebarWidth: clamp(s.sidebarWidth, ...WIDTH_LIMITS.sidebar, base.sidebarWidth),
-    resultsWidth: clamp(s.resultsWidth, ...WIDTH_LIMITS.results, base.resultsWidth)
+    resultsWidth: clamp(s.resultsWidth, ...WIDTH_LIMITS.results, base.resultsWidth),
+    watches: watchList(s.watches) ?? base.watches
   }
 }
 

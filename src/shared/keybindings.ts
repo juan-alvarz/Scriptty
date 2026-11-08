@@ -16,10 +16,21 @@ export const ACTIONS = [
   { id: 'close-tab', label: 'Close Tab', key: 'CmdOrCtrl+W' },
   { id: 'next-tab', label: 'Next Tab', key: 'Ctrl+Tab' },
   { id: 'prev-tab', label: 'Previous Tab', key: 'Ctrl+Shift+Tab' },
+  { id: 'move-tab-left', label: 'Move Tab Left', key: 'CmdOrCtrl+Shift+PageUp' },
+  { id: 'move-tab-right', label: 'Move Tab Right', key: 'CmdOrCtrl+Shift+PageDown' },
   { id: 'split-right', label: 'Split Editor Right', key: 'CmdOrCtrl+\\' },
   { id: 'focus-split-1', label: 'Focus Split 1', key: 'CmdOrCtrl+1' },
   { id: 'focus-split-2', label: 'Focus Split 2', key: 'CmdOrCtrl+2' },
   { id: 'focus-split-3', label: 'Focus Split 3', key: 'CmdOrCtrl+3' },
+  { id: 'debug-start', label: 'Start Debugging', key: 'F5' },
+  // A second key for the same action: F5 needs Fn on most Mac keyboards.
+  { id: 'debug-start-alt', label: 'Start Debugging (second key)', key: 'Shift+CmdOrCtrl+D' },
+  { id: 'debug-stop', label: 'Stop Debugging', key: 'Shift+F5' },
+  { id: 'debug-continue', label: 'Continue', key: 'F8' },
+  { id: 'debug-step-over', label: 'Step Over', key: 'F10' },
+  { id: 'debug-step-into', label: 'Step Into', key: 'F11' },
+  { id: 'debug-step-out', label: 'Step Out', key: 'Shift+F11' },
+  { id: 'toggle-breakpoint', label: 'Toggle Breakpoint', key: 'F9' },
   { id: 'settings', label: 'Settings', key: 'CmdOrCtrl+,' }
 ] as const
 
