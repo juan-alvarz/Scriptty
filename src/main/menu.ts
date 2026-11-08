@@ -46,6 +46,9 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
         { type: 'separator' },
         { label: 'Next Tab', accelerator: 'Ctrl+Tab', click: () => send('next-tab') },
         { label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab', click: () => send('prev-tab') },
+        // Shown here; the keys themselves are caught in before-input-event (shortcuts.ts) so the editor never swallows them.
+        { label: 'Move Tab Left', accelerator: 'CmdOrCtrl+Shift+PageUp', click: () => send('move-tab-left') },
+        { label: 'Move Tab Right', accelerator: 'CmdOrCtrl+Shift+PageDown', click: () => send('move-tab-right') },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' },

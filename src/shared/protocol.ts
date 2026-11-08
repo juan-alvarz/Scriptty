@@ -57,7 +57,7 @@ export type TreeNode = { name: string; path: string; kind: 'file' | 'folder'; ch
 
 export type TreeAction = 'new-file' | 'new-folder' | 'rename' | 'trash' | 'reveal'
 
-export type MenuAction = 'settings' | 'new-file' | 'new-folder' | 'toggle-sidebar' | 'close-tab' | 'next-tab' | 'prev-tab'
+export type MenuAction = 'settings' | 'new-file' | 'new-folder' | 'toggle-sidebar' | 'close-tab' | 'next-tab' | 'prev-tab' | 'move-tab-left' | 'move-tab-right'
 
 export type PackageInfo = { name: string; version: string }
 

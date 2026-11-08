@@ -8,6 +8,7 @@ import { Workspace } from './workspace'
 import { Packages } from './packages'
 import { loadSettings, sanitize, saveSettings } from './settings'
 import { appMenu, treeMenu } from './menu'
+import { moveTabShortcut } from './shortcuts'
 import { bundle } from './bundle'
 import { SAMPLE } from '../shared/sample'
 import type { BundleOptions, MenuAction, Result, RunResponse, Settings } from '../shared/protocol'
@@ -81,6 +82,13 @@ function createWindow(): void {
     }
   })
   win.once('ready-to-show', () => win?.show())
+  // Caught before the page so Monaco (or vim mode) cannot consume them; preventDefault also skips the menu accelerator.
+  win.webContents.on('before-input-event', (e, input) => {
+    const a = moveTabShortcut(input, isMac)
+    if (!a) return
+    e.preventDefault()
+    win?.webContents.send('menu', a)
+  })
   if (!isMac) nativeTheme.on('updated', () => win?.setTitleBarOverlay(overlay()))
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)

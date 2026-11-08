@@ -29,10 +29,14 @@ Done (layout, bundle, imports, 2026-11-07):
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
+Done (tab reorder, 2026-11-08):
+- Drag a file tab to reorder it (`FileTabs.svelte`). A press becomes a drag after 4 px, so click still activates and middle-click still closes; a bar marks the drop gap, the strip auto-scrolls near its edges, Esc cancels, and dragging never activates the tab. The order is saved in `openFiles`.
+- ⌘⇧PageUp / ⌘⇧PageDown (Ctrl+Shift+PageUp / PageDown on Windows and Linux) move the current tab one place, stopping at the ends; also in View > Move Tab Left / Right (decision 17).
+- Ordering math (move, insertion gap from pointer x and tab rects, auto-scroll speed) is pure in `src/renderer/src/tabs.ts` with vitest tests. Checked in the real app under xvfb: drag, no-op drop, click with jitter, middle-click, auto-scroll, persistence, and the shortcuts from inside Monaco.
+
 Not done yet:
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - README in package details is plain text, not rendered Markdown.
-- Tabs cannot be reordered by dragging yet.
 - `Bun.*` globals have no editor types (add `bun-types` the same way as `@types/node`).
 - Auto-update wiring, signing.
 - Windows build not run yet (menu accelerators with the hidden title bar need checking there). CI not set up.
@@ -60,6 +64,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | Tab drag uses **pointer events**; the move-tab keys are caught in main's **`before-input-event`** | HTML5 drag and drop has no drag threshold, shows a ghost image and fights the click and middle-click handlers; pointer events with capture after 4 px keep both and allow edge auto-scroll. The shortcuts are matched in main (`src/main/shortcuts.ts`) before the page sees them, so Monaco and vim mode cannot consume them, and `preventDefault` there also stops the menu accelerator from firing a second time. The View menu items still show the keys. Note: Playwright's synthetic keys skip `before-input-event`; test these with real input (e.g. `xdotool` under xvfb). | 2026-11-08 |
 
 ## Electron on macOS and Windows
 

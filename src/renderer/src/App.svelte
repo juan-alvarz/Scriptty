@@ -9,6 +9,7 @@
   import BundlePanel from './BundlePanel.svelte'
   import StatusBar from './StatusBar.svelte'
   import SettingsDialog from './Settings.svelte'
+  import { moveTab, stepIndex } from './tabs'
   import { DEFAULT_SETTINGS, WIDTH_LIMITS, type RunnerEvent, type Settings, type TreeNode } from '../../shared/protocol'
 
   const api = window.scriptty
@@ -175,6 +176,18 @@
     open(tabs[(i + step + tabs.length) % tabs.length])
   }
 
+  function reorder(from: number, to: number): void {
+    tabs = moveTab(tabs, from, to)
+    saveTabs()
+  }
+
+  /** ⌘⇧PageUp / PageDown (Ctrl+Shift elsewhere): moves the current tab one place, stopping at the ends. */
+  function stepTab(step: number): void {
+    const i = tabs.indexOf(current)
+    const to = stepIndex(tabs.length, i, step)
+    if (to >= 0) reorder(i, to)
+  }
+
   async function refreshTree(): Promise<void> {
     const r = await api.fs.tree()
     if (r.ok) tree = r.value
@@ -318,6 +331,8 @@
       else if (a === 'close-tab') current && closeTab(current)
       else if (a === 'next-tab') cycleTab(1)
       else if (a === 'prev-tab') cycleTab(-1)
+      else if (a === 'move-tab-left') stepTab(-1)
+      else if (a === 'move-tab-right') stepTab(1)
       else create(a === 'new-file' ? 'file' : 'folder')
     })
 
@@ -404,7 +419,7 @@
 
     <div class="body" bind:this={bodyEl} style="grid-template-columns: minmax(0, 1fr) min({resW}px, calc(100% - 240px))">
       <div class="col">
-        <FileTabs {tabs} {current} {mod} onopen={open} onclose={closeTab} />
+        <FileTabs {tabs} {current} {mod} onopen={open} onclose={closeTab} onmove={reorder} />
         <div class="editor">
           <div class="host" bind:this={editorEl}></div>
           {#if ready && !current}
