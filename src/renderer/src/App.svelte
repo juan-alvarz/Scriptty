@@ -11,6 +11,7 @@
   import SettingsDialog from './Settings.svelte'
   import MissingBanner from './MissingBanner.svelte'
   import { registerMissingQuickFix, setMissing } from './missing'
+  import { RUNTIME_OWNER, runtimeMarkers } from './markers'
   import { DEFAULT_SETTINGS, WIDTH_LIMITS, type RunnerEvent, type Settings, type TreeNode } from '../../shared/protocol'
 
   const api = window.scriptty
@@ -52,6 +53,8 @@
   let runTimer: ReturnType<typeof setTimeout> | undefined
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   let pendingSave: { rel: string; content: string } | null = null
+  // Red squiggles for the current run's thrown errors, on the model that ran.
+  const markers = runtimeMarkers<monaco.editor.ITextModel>((m, ms) => monaco.editor.setModelMarkers(m, RUNTIME_OWNER, ms))
 
   // A run's events can arrive before its invoke reply, so whichever comes first starts the run.
   function startRun(id: number): boolean {
@@ -91,12 +94,14 @@
     if (fresh) {
       // Keep the previous run's results on screen until the new run says something, to avoid flicker.
       resultsPanel.clear()
+      markers.start(editor?.getModel() ?? null)
       count = 0
       fresh = false
     }
     if (e.type === 'result') {
       count++
       resultsPanel.add(e.line, { kind: e.kind, text: e.text, full: e.full })
+      markers.add(e)
       // Output after `done` means timers or a server are still going, so offer Stop again.
       if (status.mode === 'live') status = { mode: 'running', info: status.info }
     } else if (e.stopped) {

@@ -4,8 +4,11 @@ export type ResultKind = 'value' | 'log' | 'warn' | 'error'
 
 /** Line 0 means "not tied to a line" (stdout from packages, a frozen runner, a crash). */
 export type RunnerEvent =
-  /** `text` is one line for the gutter; `full` is the pretty, multi-line form for the detail panel. */
-  | { type: 'result'; runId: number; line: number; kind: ResultKind; text: string; full?: string }
+  /**
+   * `text` is one line for the gutter; `full` is the pretty, multi-line form for the detail panel.
+   * `thrown` marks errors that were thrown or rejected, as opposed to `console.error` output.
+   */
+  | { type: 'result'; runId: number; line: number; kind: ResultKind; text: string; full?: string; thrown?: true }
   /** `stopped`: ended by the user (Stop), not by the code finishing. */
   | { type: 'done'; runId: number; ms: number; stopped?: boolean }
 

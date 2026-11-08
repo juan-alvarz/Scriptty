@@ -64,6 +64,12 @@ describe('runner', () => {
     ])
   })
 
+  it('flags thrown errors and rejections, not console.error output', async () => {
+    const es = await runCode(['console.error("careful")', 'Promise.reject(new Error("later"))', 'throw new Error("now")'].join('\n'))
+    const errors = es.flatMap((e) => (e.type === 'result' && e.kind === 'error' ? [`${e.line} ${e.thrown ?? false} ${e.text}`] : []))
+    expect(errors).toEqual(['1 false careful', '2 true Error: later', '3 true Error: now'])
+  })
+
   it('runs imports between scratch files, packages from nested files, and relative fs paths', async () => {
     // Shared packages live in `dir/node_modules`; scratches live elsewhere, like ~/Documents/Scriptty.
     mkdirSync(join(dir, 'node_modules/fakepkg'), { recursive: true })

@@ -51,7 +51,7 @@ function sendError(e: unknown, fallbackLine = 0): void {
       .replace(/\((?:.*[\\/])?run-\d+\.\w+:(\d+):\d+\)/, '(line $1)')
       .replace(/at (?:.*[\\/])?run-\d+\.\w+:(\d+):\d+$/, 'at line $1')
   const full = [text, ...frames.map(tidy)].join('\n')
-  send({ type: 'result', runId, line: lineFromStack(err?.stack) ?? fallbackLine, kind: 'error', text, full })
+  send({ type: 'result', runId, line: lineFromStack(err?.stack) ?? fallbackLine, kind: 'error', text, full, thrown: true })
 }
 
 function lineFromStack(stack?: string): number | null {
