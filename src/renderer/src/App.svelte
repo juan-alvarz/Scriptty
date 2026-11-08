@@ -10,7 +10,16 @@
   import StatusBar from './StatusBar.svelte'
   import SettingsDialog from './Settings.svelte'
   import DebugPanel, { type Paused } from './DebugPanel.svelte'
-  import { allBreakpoints, attachBreakpointMargin, markPaused, toggleBreakpoint } from './breakpoints'
+  import {
+    allBreakpoints,
+    attachBreakpointMargin,
+    clearBreakpoints,
+    listBreakpoints,
+    markPaused,
+    removeBreakpoint,
+    toggleBreakpoint,
+    type BreakpointItem
+  } from './breakpoints'
   import {
     DEFAULT_SETTINGS,
     WIDTH_LIMITS,
@@ -49,7 +58,10 @@
   let settingsOpen = $state(false)
   let quickOpen = $state(false)
   let notice = $state('')
-  let view = $state<'results' | 'bundle'>('results')
+  let view = $state<'results' | 'bundle' | 'debugger'>('results')
+  /** Every breakpoint, for the Debugger tab (decorations move with edits, so this is refreshed on change). */
+  let bps = $state<BreakpointItem[]>([])
+  const refreshBps = (): void => void (bps = listBreakpoints())
   let sideMode = $state<'files' | 'search'>('files')
   let searchFocus = $state(0)
   let tabs = $state<string[]>([])
@@ -172,6 +184,7 @@
     if (e.type === 'paused') {
       clearTimeout(runTimer) // an edit made just before the pause must not replace the paused run
       session.paused = { reason: e.reason, frames: e.frames }
+      view = 'debugger'
       const top = e.frames[0]
       status = { mode: 'debugging', info: `Paused at ${top.file}:${top.line}` }
       await showFrame(0)
@@ -202,7 +215,22 @@
 
   /** Breakpoint changes reach a debug run at once; live runs never see them. */
   function syncBreakpoints(rel: string, lines: number[]): void {
+    refreshBps()
     if (session) api.debug.setBreakpoints(rel, lines)
+  }
+
+  function clearAllBreakpoints(): void {
+    for (const rel of clearBreakpoints()) syncBreakpoints(rel, [])
+    refreshBps()
+  }
+
+  /** Opens a breakpoint's file and puts the cursor on its line. */
+  async function jumpTo(rel: string, line: number): Promise<void> {
+    if (rel !== current) await open(rel)
+    if (!editor || current !== rel) return
+    editor.setPosition({ lineNumber: line, column: 1 })
+    editor.revealLineInCenterIfOutsideViewport(line)
+    editor.focus()
   }
 
   function toggleBreakpointAtCursor(): void {
@@ -256,7 +284,7 @@
     else if (view === 'bundle') bundlePanel.refresh()
   }
 
-  async function showView(v: 'results' | 'bundle'): Promise<void> {
+  async function showView(v: 'results' | 'bundle' | 'debugger'): Promise<void> {
     view = v
     if (v === 'bundle') {
       await flush()
@@ -428,6 +456,7 @@
     for (const k of [...viewStates.keys()]) if (remap(k) !== k) viewStates.delete(k)
     disposeModels(node.path)
     await refreshTree()
+    refreshBps()
     selected = r.value
     if (moved) {
       current = ''
@@ -451,6 +480,7 @@
     if (affected) closeEditor()
     disposeModels(node.path)
     await refreshTree()
+    refreshBps()
     selected = ''
     if (affected) {
       const next = tabs[idx] ?? tabs[idx - 1] ?? tabs[tabs.length - 1]
@@ -510,6 +540,7 @@
     })
 
     ed.onDidChangeModelContent(() => {
+      if (bps.length) refreshBps()
       pendingSave = { rel: current, content: ed.getValue() }
       clearTimeout(saveTimer)
       saveTimer = setTimeout(flush, 400)
@@ -599,13 +630,10 @@
     <Toolbar
       sidebarHidden={settings.sidebarHidden}
       autoRun={settings.autoRun}
-      debugging={!!session}
       {mod}
       ontogglesidebar={toggleSidebar}
       ontoggleautorun={() => change({ autoRun: !settings.autoRun })}
       onrun={runNow}
-      ondebug={startDebug}
-      onstopdebug={stopDebug}
       running={status.mode === 'running'}
       onstop={stop}
       onsettings={() => (settingsOpen = true)}
@@ -640,21 +668,31 @@
         <div class="colhead tabs" role="tablist" aria-label="Right panel">
           <button role="tab" aria-selected={view === 'results'} onclick={() => showView('results')}>Results</button>
           <button role="tab" aria-selected={view === 'bundle'} onclick={() => showView('bundle')}>Bundle</button>
+          <button role="tab" aria-selected={view === 'debugger'} onclick={() => showView('debugger')}>
+            Debugger
+            {#if session?.paused}<i class="tabdot" title="Paused"></i>{/if}
+            {#if bps.length}<span class="badge" title="{bps.length} breakpoint{bps.length === 1 ? '' : 's'}">{bps.length}</span>{/if}
+          </button>
         </div>
         <ResultsPanel bind:this={resultsPanel} {editor} fontSize={settings.fontSize} hidden={view !== 'results'} stale={status.mode === 'paused'} />
         <BundlePanel bind:this={bundlePanel} file={current} hidden={view !== 'bundle'} />
-        {#if session}
-          <DebugPanel
-            paused={session.paused}
-            finished={session.finished}
-            frame={session.frame}
-            oncommand={debugCommand}
-            onstop={stopDebug}
-            onselect={showFrame}
-            watches={settings.watches}
-            onwatches={async (w) => (settings = await api.settings.set({ watches: w }))}
-          />
-        {/if}
+        <DebugPanel
+          hidden={view !== 'debugger'}
+          active={!!session}
+          paused={session?.paused ?? null}
+          finished={session?.finished ?? false}
+          frame={session?.frame ?? 0}
+          oncommand={debugCommand}
+          onstop={stopDebug}
+          onselect={showFrame}
+          watches={settings.watches}
+          onwatches={async (w) => (settings = await api.settings.set({ watches: w }))}
+          breakpoints={bps}
+          onstart={startDebug}
+          onjump={jumpTo}
+          onremove={(rel, line) => syncBreakpoints(rel, removeBreakpoint(rel, line))}
+          onclear={clearAllBreakpoints}
+        />
       </div>
     </div>
 
@@ -742,6 +780,28 @@
   }
   .tabs button + button {
     border-left: 1px solid var(--line);
+  }
+  .badge {
+    display: inline-block;
+    min-width: 16px;
+    margin-left: 5px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--err) 85%, transparent);
+    color: #fff;
+    font-size: 10px;
+    line-height: 16px;
+    font-weight: 600;
+    box-sizing: border-box;
+  }
+  .tabdot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 5px;
+    border-radius: 50%;
+    background: var(--warn);
+    vertical-align: middle;
   }
   .tabs button:hover {
     color: var(--fg);

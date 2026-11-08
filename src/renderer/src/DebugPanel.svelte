@@ -6,8 +6,13 @@
 
 <script lang="ts">
   import { untrack } from 'svelte'
+  import type { BreakpointItem } from './breakpoints'
 
   type Props = {
+    /** The Debugger tab is not the one shown. */
+    hidden: boolean
+    /** A debug run is in progress (running or paused). */
+    active: boolean
     /** Null while the debug run is running. */
     paused: Paused | null
     /** The run's top level has finished; the process stays attached for timers and callbacks. */
@@ -19,8 +24,14 @@
     /** Watch expressions, kept in settings. */
     watches: string[]
     onwatches: (watches: string[]) => void
+    breakpoints: BreakpointItem[]
+    onstart: () => void
+    onjump: (rel: string, line: number) => void
+    onremove: (rel: string, line: number) => void
+    onclear: () => void
   }
-  let { paused, finished, frame, oncommand, onstop, onselect, watches, onwatches }: Props = $props()
+  let { hidden, active, paused, finished, frame, oncommand, onstop, onselect, watches, onwatches, breakpoints, onstart, onjump, onremove, onclear }: Props =
+    $props()
 
   const api = window.scriptty
   let scopes = $state<DebugScope[]>([])
@@ -167,11 +178,13 @@
   {/each}
 {/snippet}
 
-<section class="debug" class:open={!!paused} aria-label="Debugger">
+<section class="debug" {hidden} aria-label="Debugger">
   <header>
-    <i class="dot" class:paused={!!paused}></i>
+    <i class="dot" class:paused={!!paused} class:idle={!active}></i>
     <span class="state">
-      {#if paused && top}
+      {#if !active}
+        <b>Not debugging</b>
+      {:else if paused && top}
         <b>{REASON[paused.reason] ?? 'Paused'}</b> <span class="muted">{top.file}:{top.line}</span>
       {:else if finished}
         <b>Finished</b> <span class="muted">still attached for timers and callbacks</span>
@@ -180,99 +193,138 @@
       {/if}
     </span>
     <span class="sp"></span>
-    {#each controls as k (k.c)}
-      <button class="ctl" title="{k.label} ({k.key})" aria-label={k.label} disabled={!paused} onclick={() => oncommand(k.c)}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d={k.icon} /></svg>
+    {#if active}
+      {#each controls as k (k.c)}
+        <button class="ctl" title="{k.label} ({k.key})" aria-label={k.label} disabled={!paused} onclick={() => oncommand(k.c)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d={k.icon} /></svg>
+        </button>
+      {/each}
+      <button class="ctl stop" title="Stop (⇧F5)" aria-label="Stop debugging" onclick={onstop}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5" /></svg>
       </button>
-    {/each}
-    <button class="ctl stop" title="Stop (⇧F5)" aria-label="Stop debugging" onclick={onstop}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5" /></svg>
-    </button>
+    {:else}
+      <button class="start" title="Run the current file with the debugger: it stops at breakpoints (F5)" onclick={onstart}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z" /></svg>
+        Start debugging <span class="key">F5</span>
+      </button>
+    {/if}
   </header>
-  {#if paused}
-    <div class="cols">
-      <div class="stack">
-        <h5>Call stack</h5>
+  <div class="main">
+    {#if paused}
+      <div class="cols">
+        <div class="stack">
+          <h5>Call stack</h5>
+          <ul>
+            {#each paused.frames as f, i (i)}
+              <li>
+                <button class="frame" class:on={i === frame} onclick={() => onselect(i)}>
+                  <span class="fn">{f.name}</span>
+                  <span class="muted">{f.file.split('/').pop()}:{f.line}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </div>
+        <div class="vars">
+          <h5>Watch</h5>
+          <ul class="watch">
+            {#each watches as w, i (i)}
+              {@const v = watchVals[i]}
+              {@const path = `w${i}`}
+              <li>
+                {#if editing === i}
+                  <input
+                    class="wedit"
+                    aria-label="Edit watch expression"
+                    spellcheck="false"
+                    bind:value={draft}
+                    use:focus
+                    onkeydown={(e) => onEditKey(e, i)}
+                    onblur={() => editing === i && ((editing = -1), commit(i, draft))}
+                  />
+                {:else}
+                  <div class="wrow">
+                    <button
+                      class="var"
+                      class:leaf={!v?.objectId}
+                      title="Double-click to edit"
+                      aria-expanded={v?.objectId ? path in open : undefined}
+                      onclick={() => v && toggle(path, { name: w, value: v })}
+                      ondblclick={() => startEdit(i)}
+                    >
+                      <span class="caret" aria-hidden="true">{v?.objectId ? (path in open ? '▾' : '▸') : ''}</span>
+                      <span class="name">{w}</span><span class="colon">:</span>
+                      <span class="val {v?.type ?? 'unavailable'}" title={v?.text}>{v?.text ?? '…'}</span>
+                    </button>
+                    <button class="wbtn" title="Edit" aria-label="Edit {w}" onclick={() => startEdit(i)}>
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" /></svg>
+                    </button>
+                    <button class="wbtn" title="Remove" aria-label="Remove {w}" onclick={() => commit(i, '')}>
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                    </button>
+                  </div>
+                  {#if path in open}{@render children(path, 0)}{/if}
+                {/if}
+              </li>
+            {/each}
+            <li><input class="wadd" placeholder="Add expression…" aria-label="Add watch expression" spellcheck="false" onkeydown={onAddKey} /></li>
+          </ul>
+          {#if error}<p class="muted note">{error}</p>{/if}
+          {#each scopes as s, si (si)}
+            <h5>{s.name}</h5>
+            <ul>{@render tree(s.vars, `${frame}:${si}`, 0)}</ul>
+          {:else}
+            {#if !error}<p class="muted note">No variables</p>{/if}
+          {/each}
+        </div>
+      </div>
+    {/if}
+    <div class="bps" class:docked={!!paused}>
+      <div class="bphead">
+        <h5>Breakpoints</h5>
+        <span class="sp"></span>
+        {#if breakpoints.length}<button class="link" onclick={onclear}>Clear all</button>{/if}
+      </div>
+      {#if breakpoints.length}
         <ul>
-          {#each paused.frames as f, i (i)}
-            <li>
-              <button class="frame" class:on={i === frame} onclick={() => onselect(i)}>
-                <span class="fn">{f.name}</span>
-                <span class="muted">{f.file.split('/').pop()}:{f.line}</span>
+          {#each breakpoints as b (b.rel + ':' + b.line)}
+            <li class="bprow" class:hit={!!top && top.file === b.rel && top.line === b.line}>
+              <button class="bp" title="Go to {b.rel}:{b.line}" onclick={() => onjump(b.rel, b.line)}>
+                <i class="bpdot" aria-hidden="true"></i>
+                <span class="loc">{b.rel.split('/').pop()}:{b.line}</span>
+                <span class="code muted">{b.text}</span>
+              </button>
+              <button class="wbtn" title="Remove breakpoint" aria-label="Remove breakpoint at {b.rel}:{b.line}" onclick={() => onremove(b.rel, b.line)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
               </button>
             </li>
           {/each}
         </ul>
-      </div>
-      <div class="vars">
-        <h5>Watch</h5>
-        <ul class="watch">
-          {#each watches as w, i (i)}
-            {@const v = watchVals[i]}
-            {@const path = `w${i}`}
-            <li>
-              {#if editing === i}
-                <input
-                  class="wedit"
-                  aria-label="Edit watch expression"
-                  spellcheck="false"
-                  bind:value={draft}
-                  use:focus
-                  onkeydown={(e) => onEditKey(e, i)}
-                  onblur={() => editing === i && ((editing = -1), commit(i, draft))}
-                />
-              {:else}
-                <div class="wrow">
-                  <button
-                    class="var"
-                    class:leaf={!v?.objectId}
-                    title="Double-click to edit"
-                    aria-expanded={v?.objectId ? path in open : undefined}
-                    onclick={() => v && toggle(path, { name: w, value: v })}
-                    ondblclick={() => startEdit(i)}
-                  >
-                    <span class="caret" aria-hidden="true">{v?.objectId ? (path in open ? '▾' : '▸') : ''}</span>
-                    <span class="name">{w}</span><span class="colon">:</span>
-                    <span class="val {v?.type ?? 'unavailable'}" title={v?.text}>{v?.text ?? '…'}</span>
-                  </button>
-                  <button class="wbtn" title="Edit" aria-label="Edit {w}" onclick={() => startEdit(i)}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" /></svg>
-                  </button>
-                  <button class="wbtn" title="Remove" aria-label="Remove {w}" onclick={() => commit(i, '')}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-                  </button>
-                </div>
-                {#if path in open}{@render children(path, 0)}{/if}
-              {/if}
-            </li>
-          {/each}
-          <li><input class="wadd" placeholder="Add expression…" aria-label="Add watch expression" spellcheck="false" onkeydown={onAddKey} /></li>
-        </ul>
-        {#if error}<p class="muted note">{error}</p>{/if}
-        {#each scopes as s, si (si)}
-          <h5>{s.name}</h5>
-          <ul>{@render tree(s.vars, `${frame}:${si}`, 0)}</ul>
-        {:else}
-          {#if !error}<p class="muted note">No variables</p>{/if}
-        {/each}
-      </div>
+      {:else}
+        <p class="muted note">No breakpoints. Click left of a line number or press F9 to add one. Debug runs stop there; live runs ignore them.</p>
+      {/if}
     </div>
-    <p class="hint muted">F5 or F8 continue · F10 over · F11 into · ⇧F11 out · ⇧F5 stop · F9 breakpoint</p>
-  {/if}
+  </div>
+  {#if active}<p class="hint muted">F5 or F8 continue · F10 over · F11 into · ⇧F11 out · ⇧F5 stop · F9 breakpoint</p>{/if}
 </section>
 
 <style>
   .debug {
-    flex: none;
+    flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
-    border-top: 1px solid var(--line);
     background: var(--bg);
     font-size: 12px;
   }
-  .debug.open {
-    flex: 0 0 52%;
+  .debug[hidden] {
+    display: none;
+  }
+  .main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
   header {
     display: flex;
@@ -298,6 +350,101 @@
   }
   .dot.paused {
     background: var(--warn);
+  }
+  .dot.idle {
+    background: var(--muted);
+  }
+  .start {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: none;
+    color: var(--fg);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .start:hover {
+    background: color-mix(in srgb, var(--fg) 7%, transparent);
+  }
+  .start svg {
+    width: 11px;
+    height: 11px;
+    fill: var(--ok);
+  }
+  .start .key {
+    color: var(--muted);
+  }
+  .bps {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 8px 0;
+  }
+  .bps.docked {
+    flex: 0 1 auto;
+    max-height: 32%;
+    border-top: 1px solid var(--line);
+  }
+  .bphead {
+    display: flex;
+    align-items: center;
+    padding-right: 10px;
+  }
+  .link {
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .bprow {
+    display: flex;
+    align-items: center;
+    padding-right: 6px;
+  }
+  .bprow:hover .wbtn,
+  .bprow:focus-within .wbtn {
+    opacity: 1;
+  }
+  .bprow.hit {
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+  }
+  .bp {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 3px 10px;
+    border: 0;
+    background: none;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .bp:hover {
+    background: color-mix(in srgb, var(--fg) 6%, transparent);
+  }
+  .bpdot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--err);
+    align-self: center;
+  }
+  .loc {
+    flex: none;
+  }
+  .code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--mono);
+    font-size: 11.5px;
   }
   .ctl {
     flex: none;

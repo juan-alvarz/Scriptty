@@ -52,6 +52,36 @@ export function toggleBreakpoint(model: monaco.editor.ITextModel, line: number):
   return linesOf(rel)
 }
 
+export type BreakpointItem = { rel: string; line: number; text: string }
+
+/** Every breakpoint by file, then line, with its line of code: the Debugger tab's list. */
+export function listBreakpoints(): BreakpointItem[] {
+  const out: BreakpointItem[] = []
+  for (const rel of [...ids.keys()].sort()) {
+    const model = modelOf(rel)
+    if (model) for (const line of linesOf(rel)) out.push({ rel, line, text: model.getLineContent(line).trim() })
+  }
+  return out
+}
+
+/** Removes one breakpoint; returns the file's breakpoints after the change. */
+export function removeBreakpoint(rel: string, line: number): number[] {
+  const model = modelOf(rel)
+  if (model) set(model, linesOf(rel).filter((l) => l !== line))
+  return linesOf(rel)
+}
+
+/** Removes every breakpoint; returns the files that had some. */
+export function clearBreakpoints(): string[] {
+  const files = [...ids.keys()]
+  for (const rel of files) {
+    const model = modelOf(rel)
+    if (model) set(model, [])
+    else ids.delete(rel)
+  }
+  return files
+}
+
 /** Glyph margin clicks toggle breakpoints, and a faint dot shows where a click would put one. */
 export function attachBreakpointMargin(editor: monaco.editor.IStandaloneCodeEditor, onChange: (rel: string, lines: number[]) => void): monaco.IDisposable {
   const hover = editor.createDecorationsCollection()
