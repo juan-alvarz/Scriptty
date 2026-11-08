@@ -29,6 +29,11 @@ Done (layout, bundle, imports, 2026-11-07):
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
+Done (search, 2026-11-08):
+- Search across all scratches (⇧⌘F / Ctrl+Shift+F, View > Search Scratches): the sidebar switches between Scratches and Search. Match case, whole word and regex toggles (also Alt+C / Alt+W / Alt+R in the box), typing is debounced 200 ms, results are grouped by file with counts and the match highlighted. Clicking a hit opens its tab and selects the match. Decision 17.
+- `Workspace.search` in main (`src/main/workspace.ts`); an invalid regex comes back as `{ ok: false, error }` and is shown under the box. The open file is saved before each search, so unsaved typing is found.
+- The editor also binds ⇧⌘F itself (like ⌘Enter), so Monaco and vim mode never keep the key from the menu.
+
 Not done yet:
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - README in package details is plain text, not rendered Markdown.
@@ -37,6 +42,7 @@ Not done yet:
 - Auto-update wiring, signing.
 - Windows build not run yet (menu accelerators with the hidden title bar need checking there). CI not set up.
 - The native context menu and ⌘, accelerator were checked by hand only; automated tests cover the main-process logic.
+- Search has no replace, no include/exclude globs, and no multi-line matches. A pathological regex (catastrophic backtracking) can stall the main process; move search to a `worker_thread` with a timeout if that shows up.
 
 Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26 MB, mostly Monaco).
 
@@ -60,6 +66,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | Search runs in **main, in JS, over the same files as the editor models** | Reuses `readAll()` and its limits (300 script files, 512 KB each; binary files skipped), so search sees exactly what type-checking sees and needs no new dependency or bundled ripgrep. Matching is per line with a JS `RegExp` (columns are UTF-16 units, the same as Monaco). Results stop at 2000 matches or 200 files and say so. A bad regex is a typed result, not a thrown error. `$` counts as a word character for whole word, since it is one in JS identifiers. Ripgrep or a worker is the upgrade path if workspaces grow. | 2026-11-08 |
 
 ## Electron on macOS and Windows
 

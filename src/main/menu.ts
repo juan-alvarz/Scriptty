@@ -43,6 +43,7 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
       label: 'View',
       submenu: [
         { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => send('toggle-sidebar') },
+        { label: 'Search Scratches', accelerator: 'Shift+CmdOrCtrl+F', click: () => send('search') },
         { type: 'separator' },
         { label: 'Next Tab', accelerator: 'Ctrl+Tab', click: () => send('next-tab') },
         { label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab', click: () => send('prev-tab') },
