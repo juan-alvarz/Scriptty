@@ -2,7 +2,7 @@
 
 Scriptty is a desktop scratchpad that runs TypeScript and JavaScript as you type and shows each line's result beside it.
 
-Status: architecture decided (decisions 1 to 15). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
+Status: architecture decided (decisions 1 to 17). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
 
 ## Implementation status
 
@@ -28,6 +28,11 @@ Done (layout, bundle, imports, 2026-11-07):
 - Tabs for open files in the editor column header: tree clicks open or focus a tab (new tabs go right after the current one), × / middle-click / ⌘W close, Ctrl+Tab and Ctrl+Shift+Tab cycle, cursor and scroll are kept per tab, tabs follow renames and deletes, and open tabs are restored on launch (`openFiles` in settings).
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
+
+Done (value reports, 2026-11-08):
+- Quokka-style values: top-level and block-level `const`/`let`/`var` report their value, expression statements report at any depth (function bodies, loops, callbacks), and a trailing `//?` forces a line to report (a `return` value, an argument, a condition). See "Value reports" below.
+- The gutter shows a line's latest output (its latest error, if any) and a ×N badge with the number of calls; the detail panel still lists every output.
+- The runner caps output per line (decision 17), so tight loops do not flood IPC or the renderer.
 
 Not done yet:
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
@@ -60,6 +65,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | **Value reports**: declarations report their names, nested statements report on every call, `//?` forces a line; the runner sends a line's **first 100 outputs**, then only the latest with a count | Matches Quokka, which users know. Declarations and multi-line statements report on the line where they **end** (same rule as expression statements, and the inserted call lands after the code it reads); several bound names report one `{ a, b }` object. Calls and `void` hide an `undefined` result (`xs.forEach(...)` is noise). The cap keeps a 1e6-iteration loop to about 100 messages per line plus one every 200 ms; held outputs are formatted when sent, so a mutated object shows its newer state. Line 0 output (stray stdout) is not capped. | 2026-11-08 |
 
 ## Electron on macOS and Windows
 
@@ -131,14 +137,33 @@ Always keep one fresh runner booted and idle. A run takes the spare at once, the
 1. Renderer sends `{ scratchId, code, lang }` to main after the debounce (Settings > Editor).
 2. Main **instruments** the source (decision 12). The scaffold does this on the main thread; move it to a `worker_thread` if large files stall IPC:
    - Parse with `oxc-parser` (TS and JS, ESTree AST with byte offsets).
-   - Wrap each top-level expression statement with `magic-string`: `users.length` becomes `__r(10, users.length)`. Rewrite `console.*` calls the same way to tag their line.
+   - Wrap each expression statement with `magic-string`: `users.length` becomes `__r(10, (users.length))`. Rewrite `console.*` calls the same way to tag their line. Details in "Value reports".
    - Only insert text, never add or remove newlines, so line numbers in bun's errors match the editor without a source map. `magic-string` can emit a source map if exact columns are ever needed.
    - No type stripping: the output stays TS and bun runs it natively.
    - The mocks use regex for this only as a demo. The app must use the AST.
-3. Runner executes. Each result, `console.*` call and error streams back as `{ runId, line, kind, text }`.
+3. Runner executes. Each result, `console.*` call and error streams back as `{ runId, line, kind, text, calls? }`.
 4. Renderer drops messages from stale `runId`s and paints the gutter.
 
 Values are serialized in the runner (depth and length limits) so huge objects never cross IPC whole.
+
+### Value reports
+
+`reportValues` in `src/main/instrument.ts` (decision 17). Every insertion stays on its line.
+
+| Source | Instrumented | Shows |
+|--------|--------------|-------|
+| `xs.length` (any depth) | `__r(3, (xs.length))` | the value, on the line where the statement ends |
+| `f()`, `await f()`, `a?.b()`, `void x` | `__r(3, (f()), 1)` | the value unless it is `undefined` |
+| `const x = expr` (top level or any block) | `const x = expr;__r(3, x);` | `x`, on the line where the declaration ends |
+| `const { a, b: [c] } = o` | `...;__r(3, { a, c });` | one object of all bound names; names bound to functions or classes are left out |
+| `return a + b //?` | `return __r(3, (a + b)) //?` | the outermost expression ending before the comment (`/*?*/` too) |
+| `f() //?` | `__r(3, (f())) //?` | also an `undefined` result |
+
+The appended `;` before a declaration's report is there when the source has none; the one after it stops a next line that starts with `(` or `[` from calling the report's result.
+
+Never wrapped: directives, `super(...)` (TS parameter properties rely on it being a plain statement), `yield` statements, console calls (they report themselves), `for` headers, assignment targets, `delete`/`typeof` operands, callees and tags (`this` must stay bound), links inside an optional chain (short-circuit), shorthand properties, methods, enums and type-only code.
+
+Each run's host sends a line's first 100 outputs as they happen. After that it holds the latest output per line with how many calls it stands for (`calls`) and sends it every 200 ms and before `done`. A promise reports `Promise { <pending> }` and then its value with `calls: 0`, so the badge counts calls, not messages; a call's promise only reports once it settles.
 
 ## Packages
 

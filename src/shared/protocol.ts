@@ -4,8 +4,13 @@ export type ResultKind = 'value' | 'log' | 'warn' | 'error'
 
 /** Line 0 means "not tied to a line" (stdout from packages, a frozen runner, a crash). */
 export type RunnerEvent =
-  /** `text` is one line for the gutter; `full` is the pretty, multi-line form for the detail panel. */
-  | { type: 'result'; runId: number; line: number; kind: ResultKind; text: string; full?: string }
+  /**
+   * `text` is one line for the gutter; `full` is the pretty, multi-line form for the detail panel.
+   * `calls` is how many calls the entry stands for (default 1). The runner sends a line's first outputs one by one,
+   * then only the latest with a count (see `CAP` in resources/runner/host.ts). A promise's settled value has
+   * `calls: 0`: its call was counted with the pending entry.
+   */
+  | { type: 'result'; runId: number; line: number; kind: ResultKind; text: string; full?: string; calls?: number }
   | { type: 'done'; runId: number; ms: number }
 
 export type ToRunner =
