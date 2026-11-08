@@ -1,5 +1,6 @@
-// Debug session for one debug run (decision 17): talks to bun's inspector, maps lines through bun's source
+// Debug session for one debug run (decision 25): talks to bun's inspector, maps lines through bun's source
 // maps, and turns WebKit protocol objects into the small shapes the renderer shows.
+import { realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -67,6 +68,13 @@ const norm = (p: string): string => {
   const s = path.replace(/\\/g, '/')
   return process.platform === 'win32' ? s.toLowerCase() : s
 }
+const real = (p: string): string => {
+  try {
+    return realpathSync.native(p)
+  } catch {
+    return p
+  }
+}
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** A regex for a path that matches either slash direction. */
 const pathRe = (p: string): string => escapeRe(p.replace(/\\/g, '/')).replace(/\//g, '[\\\\/]')
@@ -89,6 +97,8 @@ export class DebugSession {
 
   /** Connects and enables the debugger. Call before the run starts, so no script is missed. */
   static async attach(url: string, o: DebugOptions): Promise<DebugSession> {
+    // bun reports real paths (on macOS the temp folder /var is /private/var), so compare against those.
+    o = { ...o, root: real(o.root), runFile: real(o.runFile), gate: real(o.gate) }
     const ins = await Inspector.connect(url)
     const s = new DebugSession(ins, o)
     ins.on('Debugger.scriptParsed', (p: { scriptId: string; url: string; sourceMapURL?: string }) => s.onScript(p))

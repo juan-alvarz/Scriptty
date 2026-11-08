@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
+  Added,
   Breakpoints,
   BundleOptions,
   DebugCommand,
@@ -7,12 +8,16 @@ import type {
   DebugScope,
   DebugVar,
   MenuAction,
-  PackageInfo,
+  PackageList,
   PackageDetails,
   Result,
   RunResponse,
   RunnerEvent,
+  SearchOptions,
+  SearchResult,
   Settings,
+  Snippet,
+  SnippetsState,
   TreeAction,
   TreeNode,
   TypeLib
@@ -27,6 +32,8 @@ function listen<T>(channel: string, cb: (m: T) => void): () => void {
 const api = {
   platform: process.platform,
   run: (code: string, file: string): Promise<RunResponse> => ipcRenderer.invoke('run', code, file),
+  /** Stops the active run. Resolves false if nothing was running. */
+  stop: (): Promise<boolean> => ipcRenderer.invoke('stop'),
   onEvent: (cb: (e: RunnerEvent) => void) => listen('runner:event', cb),
   onMenu: (cb: (a: MenuAction) => void) => listen('menu', cb),
   debug: {
@@ -53,14 +60,27 @@ const api = {
     rename: (rel: string, name: string): Promise<Result<string>> => ipcRenderer.invoke('fs:rename', rel, name),
     trash: (rel: string): Promise<Result> => ipcRenderer.invoke('fs:trash', rel),
     reveal: (rel: string): Promise<Result> => ipcRenderer.invoke('fs:reveal', rel),
+    search: (query: string, o: SearchOptions): Promise<SearchResult> => ipcRenderer.invoke('fs:search', query, o),
     menu: (onItem: boolean): Promise<TreeAction | null> => ipcRenderer.invoke('fs:menu', onItem)
   },
   packages: {
-    list: (): Promise<PackageInfo[]> => ipcRenderer.invoke('pkg:list'),
-    add: (spec: string): Promise<Result> => ipcRenderer.invoke('pkg:add', spec),
+    list: (): Promise<PackageList> => ipcRenderer.invoke('pkg:list'),
+    add: (spec: string): Promise<Result<Added>> => ipcRenderer.invoke('pkg:add', spec),
+    addTypes: (name: string): Promise<Result> => ipcRenderer.invoke('pkg:add-types', name),
     remove: (name: string): Promise<Result> => ipcRenderer.invoke('pkg:remove', name),
     types: (): Promise<TypeLib[]> => ipcRenderer.invoke('pkg:types'),
     info: (name: string): Promise<Result<PackageDetails>> => ipcRenderer.invoke('pkg:info', name)
+  },
+  snippets: {
+    get: (): Promise<SnippetsState> => ipcRenderer.invoke('snippets:get'),
+    /** Adds a snippet, or replaces the one called `oldName`. */
+    put: (oldName: string | null, s: Snippet): Promise<Result<SnippetsState>> => ipcRenderer.invoke('snippets:put', oldName, s),
+    remove: (name: string): Promise<Result<SnippetsState>> => ipcRenderer.invoke('snippets:remove', name),
+    restore: (): Promise<Result<SnippetsState>> => ipcRenderer.invoke('snippets:restore'),
+    /** Opens snippets.json in the system's default app for JSON. */
+    open: (): Promise<void> => ipcRenderer.invoke('snippets:open'),
+    reveal: (): Promise<void> => ipcRenderer.invoke('snippets:reveal'),
+    onChange: (cb: (s: SnippetsState) => void) => listen('snippets:changed', cb)
   },
   bundle: (rel: string, o: BundleOptions): Promise<Result<string>> => ipcRenderer.invoke('bundle', rel, o),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url)

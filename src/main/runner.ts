@@ -30,7 +30,7 @@ type Proc = {
   banner?: number
 }
 
-/** A run in its own bun process with the inspector on (see docs/architecture.md, decision 17). */
+/** A run in its own bun process with the inspector on (see docs/architecture.md, decision 25). */
 export type DebugRun = {
   /** The inspector's ws:// URL (localhost, random port and path). */
   url: Promise<string>
@@ -94,6 +94,16 @@ export class Runner {
         if (this.active === p) this.active = null
       }
     }
+  }
+
+  /** Kills the active run (servers, intervals) and reports it done; the warm spare stays ready. False if nothing was running. */
+  stop(): boolean {
+    const p = this.active
+    if (!p) return false
+    this.active = null // drop anything still buffered from it
+    this.kill(p)
+    this.o.onEvent({ type: 'done', runId: p.runId, ms: 0, stopped: true })
+    return true
   }
 
   setFreezeMs(ms: number): void {

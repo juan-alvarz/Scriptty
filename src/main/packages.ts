@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { PackageDetails, PackageInfo, Result, TypeLib } from '../shared/protocol'
+import type { Added, PackageDetails, PackageInfo, PackageList, Result, TypeLib } from '../shared/protocol'
 import { exec } from './exec'
 
 // npm package name with an optional @version or @tag. Rejects anything that could be read as a CLI flag.
@@ -23,6 +23,32 @@ const httpsOnly = (u: unknown): string => (typeof u === 'string' && /^https?:\/\
 const identifierFor = (name: string): string =>
   (name.split('/').pop() ?? name).replace(/[^\w$]+(\w)/g, (_m, c: string) => c.toUpperCase()).replace(/^[^a-zA-Z_$]/, '_$&')
 
+/** `lodash@4` -> `lodash`, `@scope/x@^1` -> `@scope/x`. */
+const nameOf = (spec: string): string => spec.replace(/(.)@.*$/, '$1')
+
+/** The DefinitelyTyped package for `name`: `@types/lodash`, `@types/scope__x`. */
+const typesPackageOf = (name: string): string => `@types/${name.replace(/^@([^/]+)\//, '$1__')}`
+
+/** Whether npm has this package. Offline counts as yes: the install then reports the real error. */
+async function published(name: string): Promise<boolean> {
+  try {
+    const r = await fetch(`https://registry.npmjs.org/${name.replace('/', '%2f')}`, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
+    return r.status !== 404
+  } catch {
+    return true
+  }
+}
+
+/** Absolute path of the declaration file a package folder points to, if it has one. */
+function typesEntryIn(dir: string): string | undefined {
+  try {
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    return [pkg.types, pkg.typings, 'index.d.ts'].map((f) => (typeof f === 'string' ? join(dir, f) : '')).find((f) => f && existsSync(f))
+  } catch {
+    return undefined
+  }
+}
+
 /** One shared package environment, installed with the bundled bun (decision 9). */
 export class Packages {
   constructor(
@@ -31,34 +57,65 @@ export class Packages {
     private cacheDir: string
   ) {}
 
-  list(): PackageInfo[] {
-    const deps = this.manifest().dependencies ?? {}
-    return Object.keys(deps)
-      .sort()
-      .map((name) => ({ name, version: this.installedVersion(name) ?? deps[name] }))
+  list(): PackageList {
+    const m = this.manifest()
+    const infos = (deps: Record<string, string>): PackageInfo[] =>
+      Object.keys(deps)
+        .sort()
+        .map((name) => ({ name, version: this.installedVersion(name) ?? deps[name] }))
+    const typeLibraries = Object.fromEntries(Object.entries(m.devDependencies ?? {}).filter(([name]) => name.startsWith('@types/')))
+    return { packages: infos(m.dependencies ?? {}), typeLibraries: infos(typeLibraries) }
   }
 
-  add(spec: string): Promise<Result> {
-    if (!isValidSpec(spec)) return Promise.resolve({ ok: false, error: `"${spec}" is not a valid package name` })
-    return this.bunCmd(['add', spec])
+  /** Installs a package. For one without types, says which @types package exists, so the UI can offer it. */
+  async add(spec: string): Promise<Result<Added>> {
+    if (!isValidSpec(spec)) return { ok: false, error: `"${spec}" is not a valid package name` }
+    const r = await this.bunCmd(['add', spec])
+    if (!r.ok) return r
+    const name = nameOf(spec)
+    const typesPackage = typesPackageOf(name)
+    const offer = this.typesOf(name).kind === 'none' && (await published(typesPackage))
+    return { ok: true, value: { name, typesPackage: offer ? typesPackage : null } }
   }
 
-  remove(name: string): Promise<Result> {
-    if (!isValidSpec(name)) return Promise.resolve({ ok: false, error: `"${name}" is not a valid package name` })
-    return this.bunCmd(['remove', name])
+  /** Installs DefinitelyTyped declarations for an installed package. A dev dependency, so it lists apart. */
+  addTypes(name: string): Promise<Result> {
+    if (!isValidSpec(name) || !(name in (this.manifest().dependencies ?? {}))) return Promise.resolve({ ok: false, error: `${name} is not installed` })
+    return this.bunCmd(['add', '--dev', typesPackageOf(name)])
+  }
+
+  async remove(name: string): Promise<Result> {
+    if (!isValidSpec(name)) return { ok: false, error: `"${name}" is not a valid package name` }
+    const r = await this.bunCmd(['remove', name])
+    const typesPackage = typesPackageOf(name)
+    if (r.ok && typesPackage in (this.manifest().devDependencies ?? {})) await this.bunCmd(['remove', typesPackage])
+    return r
+  }
+
+  /** Where a package's declarations come from: its own files, its @types package, or nowhere. */
+  private typesOf(name: string): { kind: PackageDetails['types']; entry?: string } {
+    const own = typesEntryIn(join(this.dir, 'node_modules', name))
+    if (own) return { kind: 'bundled', entry: own }
+    const fromTypes = typesEntryIn(join(this.dir, 'node_modules', typesPackageOf(name)))
+    return fromTypes ? { kind: '@types', entry: fromTypes } : { kind: 'none' }
   }
 
   /** What the package panel shows when a package is clicked. Reads only files inside node_modules/<name>. */
   info(name: string): PackageDetails {
-    if (!isValidSpec(name) || !(name in (this.manifest().dependencies ?? {}))) throw new Error(`${name} is not installed`)
+    const m = this.manifest()
+    if (!isValidSpec(name) || !(name in { ...m.dependencies, ...m.devDependencies })) throw new Error(`${name} is not installed`)
     const dir = join(this.dir, 'node_modules', name)
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    const typesEntry = [pkg.types, pkg.typings, 'index.d.ts'].find((f) => typeof f === 'string' && existsSync(join(dir, f)))
-    const types = typesEntry ? 'bundled' : existsSync(join(this.dir, 'node_modules/@types', name.replace(/^@([^/]+)\//, '$1__'))) ? '@types' : 'none'
-    const typesText = typesEntry ? readFileSync(join(dir, typesEntry), 'utf8') : ''
+    const { kind: types, entry: typesEntry } = this.typesOf(name)
+    const typesText = typesEntry ? readFileSync(typesEntry, 'utf8') : ''
     const id = identifierFor(name)
     // Default import when the types say there is one (or for untyped CJS, which bun default-imports fine).
-    const importLine = /export\s+default|export\s*=/.test(typesText) || types === 'none' ? `import ${id} from "${name}"` : `import * as ${id} from "${name}"`
+    // Type libraries are never imported by name: TypeScript picks them up for their package.
+    const importLine = name.startsWith('@types/')
+      ? ''
+      : /export\s+default|export\s*=/.test(typesText) || types === 'none'
+        ? `import ${id} from "${name}"`
+        : `import * as ${id} from "${name}"`
     const readmeFile = readdirSync(dir).find((f) => /^readme(\.md|\.markdown|\.txt)?$/i.test(f))
     const readme = readmeFile ? readFileSync(join(dir, readmeFile), 'utf8').slice(0, 200_000) : ''
     return {
@@ -102,6 +159,9 @@ export class Packages {
     // Bundled @types/node, so `node:fs` and friends type-check (bun implements them). A user-installed copy wins.
     if (nodeTypes && existsSync(nodeTypes) && !existsSync(join(nm, '@types/node'))) walk(nodeTypes, '@types/node')
     if (!existsSync(nm)) return libs
+    // Packages with no declarations at all import as `any`, instead of "Cannot find module".
+    const untyped = Object.keys(this.manifest().dependencies ?? {}).filter((name) => this.typesOf(name).kind === 'none')
+    if (untyped.length) libs.push({ path: 'file:///node_modules/@scriptty/untyped.d.ts', content: untyped.map((n) => `declare module ${JSON.stringify(n)};`).join('\n') })
     for (const e of readdirSync(nm, { withFileTypes: true })) {
       if (!e.isDirectory() || e.name.startsWith('.')) continue
       const names = e.name.startsWith('@') ? readdirSync(join(nm, e.name)).map((n) => `${e.name}/${n}`) : [e.name]
@@ -110,7 +170,7 @@ export class Packages {
     return libs
   }
 
-  private manifest(): { dependencies?: Record<string, string> } {
+  private manifest(): { dependencies?: Record<string, string>; devDependencies?: Record<string, string> } {
     try {
       return JSON.parse(readFileSync(join(this.dir, 'package.json'), 'utf8'))
     } catch {

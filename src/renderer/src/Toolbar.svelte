@@ -12,15 +12,18 @@
     onrun: () => void
     ondebug: () => void
     onstopdebug: () => void
+    running: boolean
+    onstop: () => void
     onsettings: () => void
   }
-  let { sidebarHidden, autoRun, debugging, mod, ontogglesidebar, ontoggleautorun, onrun, ondebug, onstopdebug, onsettings }: Props = $props()
+  let { sidebarHidden, autoRun, debugging, mod, ontogglesidebar, ontoggleautorun, onrun, ondebug, onstopdebug, running, onstop, onsettings }: Props = $props()
 </script>
 
 <header class="tb drag" class:full={sidebarHidden}>
   {#if sidebarHidden}<SidebarToggle hidden {mod} ontoggle={ontogglesidebar} />{/if}
   <span class="sp"></span>
   <button class="tbtn" aria-pressed={autoRun} onclick={ontoggleautorun}>Auto-run</button>
+  {#if running}<button class="tbtn" title="Stop timers and servers this run started" onclick={onstop}>Stop {mod}.</button>{/if}
   <button class="tbtn" onclick={() => onrun()}>Run {mod}↵</button>
   <!-- Debug is separate from the live run: only Debug runs stop at breakpoints. -->
   {#if debugging}

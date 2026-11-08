@@ -38,6 +38,8 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
         { label: 'New File', accelerator: 'CmdOrCtrl+N', click: () => send('new-file') },
         { label: 'New Folder', accelerator: 'Shift+CmdOrCtrl+N', click: () => send('new-folder') },
         { type: 'separator' },
+        { label: 'Go to File…', accelerator: 'CmdOrCtrl+P', click: () => send('quick-open') },
+        { type: 'separator' },
         { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => send('close-tab') },
         ...(isMac
           ? [{ label: 'Close Window', accelerator: 'Shift+Cmd+W', role: 'close' } as const]
@@ -49,6 +51,7 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
       label: 'View',
       submenu: [
         { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => send('toggle-sidebar') },
+        { label: 'Search Scratches', accelerator: 'Shift+CmdOrCtrl+F', click: () => send('search') },
         { type: 'separator' },
         { label: 'Next Tab', accelerator: 'Ctrl+Tab', click: () => send('next-tab') },
         { label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab', click: () => send('prev-tab') },
@@ -62,6 +65,11 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
         { type: 'separator' },
         { role: 'togglefullscreen' }
       ]
+    },
+    {
+      label: 'Run',
+      // ⌘. / Ctrl+. is Quick Fix in Monaco; the editor rebinds it to Stop too (App.svelte), so both agree.
+      submenu: [{ label: 'Stop', accelerator: 'CmdOrCtrl+.', click: () => send('stop') }]
     },
     {
       label: 'Debug',

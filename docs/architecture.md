@@ -2,7 +2,7 @@
 
 Scriptty is a desktop scratchpad that runs TypeScript and JavaScript as you type and shows each line's result beside it.
 
-Status: architecture decided (decisions 1 to 17). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
+Status: architecture decided (decisions 1 to 25). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
 
 ## Implementation status
 
@@ -15,7 +15,7 @@ Done (scaffold, 2026-11-06):
 
 Done (files, packages, settings, 2026-11-06):
 - Scratches are real files in `~/Documents/Scriptty` (decision 14), with folders, a file tree, inline rename, a native context menu (New File, New Folder, Rename, Move to Trash, Reveal), and autosave 400 ms after typing.
-- Packages panel: add with `bun add`, remove with `bun remove`, in the shared environment. Installed packages' `.d.ts` files and a bundled `@types/node` are loaded into Monaco, so imports autocomplete and type-check.
+- Packages panel: add with `bun add`, remove with `bun remove`, in the shared environment. Installed packages' `.d.ts` files and a bundled `@types/node` are loaded into Monaco, so imports autocomplete and type-check. Untyped packages get an offer to install their `@types` package (decision 24).
 - Click any result to open the full output for that line (pretty-printed with `Bun.inspect`, every call, Copy).
 - Settings (⌘/Ctrl + ,): appearance, font size, tab size, vim mode (`monaco-vim`), run as you type, run delay, freeze timeout. Stored in `userData/settings.json`.
 
@@ -29,8 +29,40 @@ Done (layout, bundle, imports, 2026-11-07):
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
+Done (stop, 2026-11-07):
+- Stop a run that keeps going (servers, intervals): Run > Stop (⌘. on macOS, Ctrl+. elsewhere) or the toolbar's Stop button, shown while the status is "Running". `Runner.stop()` kills the active bun process, emits `done` with `stopped: true` and keeps the warm spare, so the next edit runs at once. The status bar then shows "Stopped" until the next run (decision 25).
+
+Done (missing packages, 2026-11-07):
+- When a scratch imports a package that is not installed, a slim banner above the editor and results says "`lodash` isn't installed — Add · Add all (n)". Adding shows progress in the banner, reloads editor types, refreshes the Packages panel and runs again. × dismisses it for that file (a package that goes missing later shows again).
+- The import line gets a Monaco quick fix, "Install 'lodash'" (plus "Install all missing packages" when there are several), which installs through the same banner (`src/renderer/src/missing.ts`).
+- Main checks the run's bare imports against `packages/node_modules/<name>` (`src/main/missing.ts`, decision 18) and returns `missing` on the run response. `lodash/fp` counts as `lodash`, `@scope/pkg/sub` as `@scope/pkg`; `node:*`, `bun:*`, `bun` and bare node builtins (`fs`, `path`, from `module.builtinModules`) are skipped.
+
+Done (runtime error markers, 2026-11-07):
+- Thrown errors and rejections get a red squiggle on their line (Monaco marker, owner `scriptty-runtime`), spanning the line's first to last non-whitespace character, with the error and its scratch stack frames in the hover. They also show in the overview ruler, which is now on with one lane (TS diagnostics show there too). Logic is in `src/renderer/src/markers.ts` (pure, tested); see decision 19.
+- Markers live on the model that ran: a new run's first event clears that file's markers (like the results gutter), and each tab keeps the markers of its own last run. Errors on line 0 and repeats of the same error on a line get no extra marker.
+
+Done (snippets, 2026-11-07):
+- User snippets in VS Code's format (decision 20): type a prefix such as `clg` and accept the suggestion (Tab or Enter) to get `console.log($1)` with the cursor inside. Tab stops, placeholders, choices and `$0` come from Monaco's snippet engine.
+- Stored in `userData/snippets.json` (`src/main/snippets.ts`), seeded once with a short starter set (`clg`, `con`, `afn`, `imp`, `tryc`) that doubles as examples. The file is JSONC (comments, trailing commas); a file that does not parse is reported in Settings and the last good snippets stay active. Edits from another editor are picked up by polling the file every second.
+- Settings > Snippets: list, add, edit, delete (second click confirms), syntax help, Open snippets file, Show in Finder, Restore starter snippets (puts the starter ones back, keeps the user's own).
+- One completion provider for TS and JS (`src/renderer/src/monaco.ts`); the snippet → suggestion conversion is plain TS in `src/renderer/src/snippets.ts` with unit tests.
+
+Done (quick open, 2026-11-08):
+- ⌘/Ctrl + P (File > Go to File…) opens a fuzzy file switcher over every scratch in the tree (`QuickOpen.svelte`, a native `<dialog>`). With no query, files shown most recently come first and the previous file is preselected, so ⌘P Enter switches back. Up/Down, Enter, Esc and mouse work. File names are bold, folders dimmed, matched characters highlighted.
+- The matcher is `src/renderer/src/fuzzy.ts` (decision 21), unit-tested in `fuzzy.test.ts`. The shortcut is caught by a window capture listener, so Monaco and vim mode (where Ctrl+P is a motion) never swallow it.
+
+Done (README rendering, 2026-11-08):
+- Package READMEs render as Markdown (`src/renderer/src/markdown.ts`, decision 22): headings, code blocks colored with Monaco's tokenizers and scrolling sideways, tables, quotes, lists, task lists, `<details>`, in light and dark.
+- Links open in the browser (https only); `#anchor` links scroll to the heading; relative links resolve against the GitHub or GitLab repository and are dropped for other hosts. Images show as their alt text, linked to the image.
+- Main refuses navigation away from the app page and `window.open` (`will-navigate`, `setWindowOpenHandler`), as a second guard behind the click handler.
+
+Done (search, 2026-11-08):
+- Search across all scratches (⇧⌘F / Ctrl+Shift+F, View > Search Scratches): the sidebar switches between Scratches and Search. Match case, whole word and regex toggles (also Alt+C / Alt+W / Alt+R in the box), typing is debounced 200 ms, results are grouped by file with counts and the match highlighted. Clicking a hit opens its tab and selects the match. Decision 23.
+- `Workspace.search` in main (`src/main/workspace.ts`); an invalid regex comes back as `{ ok: false, error }` and is shown under the box. The open file is saved before each search, so unsaved typing is found.
+- The editor also binds ⇧⌘F itself (like ⌘Enter), so Monaco and vim mode never keep the key from the menu.
+
 Done (debugger, 2026-11-08):
-- Debug runs (decision 17): a **Debug** button in the toolbar (F5 or ⌘/Ctrl+Shift+D), separate from the live run. Live as-you-type runs are unchanged and never pause; breakpoints only take effect in a Debug run.
+- Debug runs (decision 25): a **Debug** button in the toolbar (F5 or ⌘/Ctrl+Shift+D), separate from the live run. Live as-you-type runs are unchanged and never pause; breakpoints only take effect in a Debug run.
 - Breakpoints: click the editor's glyph margin (red dot; a faint dot previews the spot) or press F9 on the cursor line, at any time. They are Monaco decorations, so they follow their line while you edit, and changes reach a running debug session at once. Breakpoints in scratches the file imports work too.
 - When a debug run stops at a breakpoint or a `debugger;` statement, the line is highlighted (opening the file if it is another scratch) and a Debug panel docks under the results: call stack (click a frame to show its line and variables) and scopes (Local, Closure, Module) with expandable objects, arrays, maps and sets. Continue (F8, or F5 while paused), Step Over (F10), Step Into (F11), Step Out (⇧F11), Stop (⇧F5). The same items are in a Debug menu.
 - Results and logs still stream to the gutter during a debug run. While paused, live runs wait; Stop (or the run's process ending) hands back to live runs with the current text. Editing while the debug run is not paused replaces it with a live run, like any run.
@@ -38,13 +70,18 @@ Done (debugger, 2026-11-08):
 
 Not done yet:
 - Debugger: breakpoints are not saved across restarts; no conditional breakpoints, watch expressions or console while paused; no pause-on-exceptions (the host catches every error, so "uncaught" never fires). A busy loop cannot be paused: bun answers the inspector on the JS thread, so the freeze watchdog still ends it. After the top level finishes, a debug run stays attached (for timers and callbacks) until Stop or an edit.
+- Snippets: saving from Settings rewrites `snippets.json` and drops the user's own comments (the explanatory header is rewritten). Monaco's standalone build has no `tabCompletion` (prefix + Tab without the suggestion list), so the list must be open. Snippet variables (`$TM_FILENAME`, `$CLIPBOARD` …) resolve only as far as Monaco's standalone resolvers go.
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
-- README in package details is plain text, not rendered Markdown.
 - Tabs cannot be reordered by dragging yet.
+- Quick open's recent-files order lives in memory only (lost on restart), and files added outside the app appear only after the tree refreshes.
 - `Bun.*` globals have no editor types (add `bun-types` the same way as `@types/node`).
 - Auto-update wiring, signing.
 - Windows build not run yet (menu accelerators with the hidden title bar need checking there). CI not set up.
 - The native context menu and ⌘, accelerator were checked by hand only; automated tests cover the main-process logic.
+- Missing-package check only sees static top-level `import` declarations (what `instrument()` collects), not `export … from`, `import()` or `require()`. The banner and quick fix are not covered by automated UI tests.
+- Runtime error markers span the whole line, not the thrown expression: the stack's column points into the instrumented code (inserted `__r(` text shifts it). A small column map from `instrument` would fix it.
+- Events that arrive between switching tabs and the new run's reply can land on the new tab's model (the results gutter has the same race); the new run's first event clears them.
+- Search has no replace, no include/exclude globs, and no multi-line matches. A pathological regex (catastrophic backtracking) can stall the main process; move search to a `worker_thread` with a timeout if that shows up.
 
 Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26 MB, mostly Monaco).
 
@@ -68,7 +105,15 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
-| 17 | Debugger: a **Debug run is its own bun process with the inspector**, driven from main over WebSocket | Bun ships a WebKit Inspector Protocol server (`--inspect=127.0.0.1:0/<random path>`); main connects with Node's global `WebSocket`, so no dependency. Live runs keep the warm spare without an inspector, so they never pause and stay as fast as before. Bun reprints every file it loads (comments, blank lines and types go), so lines go through the inline source map it reports; our instrumentation keeps editor lines, so mapping back lands on editor lines. Breakpoints are set from a gate: the debug entry imports a one-line `debugger;` module first, which runs only after the whole import graph is parsed, so every file's map is known and breakpoints are placed by script id before any user code runs. JavaScriptCore reports a module's own scope as empty, so the Module scope evaluates the file's top-level names (from the oxc AST) in the paused frame. Everything outside the workspace (host wrappers, packages) is blackboxed so Step Into skips it. The freeze watchdog is held while paused. A Node-based runner (CDP) was the alternative; it would mean a second runtime and different behaviour from live runs. | 2026-11-08 |
+| 17 | **Stop** kills the active run; ⌘. / Ctrl+. is taken from Monaco's Quick Fix | Servers and intervals otherwise run until the next edit. Killing the process (not clearing timers in the host) is the only stop that always works, and the warm spare keeps the next run instant. The runner cannot tell an idle server from finished code, so the status goes back to "Running" (and Stop shows) when a run sends output after its `done`; an idle server can still be stopped with the shortcut. ⌘. is the macOS cancel key, so the editor rebinds it from Quick Fix (still on the lightbulb) to Stop. | 2026-11-07 |
+| 18 | **Main decides which imports are missing**, after instrumenting and before the run; the run still starts | Main knows the packages folder and node's builtin list, so the renderer never guesses. A check is one `existsSync` per bare import, cheap enough for every run. The run is not blocked, so the rest of the scratch's results and bun's own error still show. The editor quick fix is offered only for names main reported, so it never offers to install `fs` while types are loading. | 2026-11-07 |
+| 19 | Runtime errors are **Monaco markers on thrown errors only** | Markers give squiggles, hover and the overview ruler for free and are kept per model, so tabs need no bookkeeping. The runner flags thrown errors and rejections with `thrown: true` on the result event; `console.error` output is a log the user chose to write, so it stays in the results gutter without a squiggle. Hand-made decorations would duplicate what markers already render. | 2026-11-07 |
+| 20 | **User snippets in VS Code's JSON format**, one file in `userData` | Users can paste snippets from VS Code (prefix and body as a string or array, `scope`, tab stops, placeholders, choices) and edit the file by hand; Settings covers the common cases. Main owns the file and rejects edits while it does not parse, so a typo never costs the user their snippets. One global file instead of per-language files keeps v1 simple (decision 5); `scope` still limits a snippet to TS or JS. Snippet suggestions sort inline by match quality (Monaco's default), and win ties with TS suggestions. | 2026-11-07 |
+| 21 | Quick open uses an **in-house fuzzy matcher** | A small dynamic program (about 150 lines, no dependency) picks the best placement of the query: points per matched char, bonuses for consecutive chars and word, camelCase and path-segment starts, a cost per skipped char, and a bonus when the whole query fits in the file name, so name matches beat folder matches. Workspaces are small, so scoring every path per keystroke is cheap. fzf-style libraries (`fzf`, `fuse.js`) were the alternative; they add weight and rank folders and names alike. | 2026-11-08 |
+| 22 | READMEs render with **`marked` + `DOMPurify`**, and **remote images stay blocked** | READMEs are untrusted HTML. DOMPurify is the maintained browser sanitizer and works in the sandboxed renderer; we allowlist tags and attributes (no `style`, `class`, `id`, forms, iframes, SVG), then on an inert `DOMParser` copy keep only https URLs (http upgraded, relative ones resolved against GitHub/GitLab) and turn images into alt-text chips. Together about 80 KB minified. The CSP keeps `img-src 'self' data:`: allowing `https:` would let any README make the app fetch from any host (tracking pixels, IP leaks) for mostly badges. A small image proxy in main could lift this later. Inline handlers in a README make Chromium log a CSP error while parsing; nothing runs. | 2026-11-08 |
+| 23 | Search runs in **main, in JS, over the same files as the editor models** | Reuses `readAll()` and its limits (300 script files, 512 KB each; binary files skipped), so search sees exactly what type-checking sees and needs no new dependency or bundled ripgrep. Matching is per line with a JS `RegExp` (columns are UTF-16 units, the same as Monaco). Results stop at 2000 matches or 200 files and say so. A bad regex is a typed result, not a thrown error. `$` counts as a word character for whole word, since it is one in JS identifiers. Ripgrep or a worker is the upgrade path if workspaces grow. | 2026-11-08 |
+| 24 | Untyped packages: **offer `@types/<name>`** after the add | Packages like lodash ship no `.d.ts`, so the editor had nothing to autocomplete. After adding one, the Packages panel asks to install its DefinitelyTyped package, only when npm has it; package details also have an Install types button. Type packages are dev dependencies, listed apart under a collapsible Type libraries group, and removing a package removes its types. A package with no types anywhere gets `declare module "name"` so its import is `any`, not an error. The import path also offers installed package names, since Monaco's TS worker cannot list `node_modules`. | 2026-11-07 |
+| 25 | Debugger: a **Debug run is its own bun process with the inspector**, driven from main over WebSocket | Bun ships a WebKit Inspector Protocol server (`--inspect=127.0.0.1:0/<random path>`); main connects with Node's global `WebSocket`, so no dependency. Live runs keep the warm spare without an inspector, so they never pause and stay as fast as before. Bun reprints every file it loads (comments, blank lines and types go), so lines go through the inline source map it reports; our instrumentation keeps editor lines, so mapping back lands on editor lines. Breakpoints are set from a gate: the debug entry imports a one-line `debugger;` module first, which runs only after the whole import graph is parsed, so every file's map is known and breakpoints are placed by script id before any user code runs. JavaScriptCore reports a module's own scope as empty, so the Module scope evaluates the file's top-level names (from the oxc AST) in the paused frame. Everything outside the workspace (host wrappers, packages) is blackboxed so Step Into skips it. The freeze watchdog is held while paused. A Node-based runner (CDP) was the alternative; it would mean a second runtime and different behaviour from live runs. | 2026-11-08 |
 
 ## Electron on macOS and Windows
 
@@ -133,10 +178,10 @@ Always keep one fresh runner booted and idle. A run takes the spare at once, the
 
 ### Freeze watchdog (decision 11)
 - The runner sends a heartbeat on a timer. If none arrives for N seconds (Settings > Runtime, "Stop code that freezes for"), main kills it and promotes the spare.
-- Code that is only waiting (servers, `setInterval`, network) keeps running until the next edit replaces it. The status bar shows "Running".
-- A debug run stopped at a breakpoint sends no heartbeats, so the debugger holds the watchdog while paused and restarts its clock on resume (decision 17).
+- Code that is only waiting (servers, `setInterval`, network) keeps running until the next edit replaces it or the user presses Stop (decision 17). The status bar shows "Running".
+- A debug run stopped at a breakpoint sends no heartbeats, so the debugger holds the watchdog while paused and restarts its clock on resume (decision 25).
 
-## Debug runs (decision 17)
+## Debug runs (decision 25)
 
 ```
 Renderer ──debug:start(code, file, breakpoints)──▶ Main ──spawn──▶ bun --inspect=127.0.0.1:0/<token> host.ts

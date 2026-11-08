@@ -19,8 +19,13 @@
     type MenuAction,
     type RunnerEvent,
     type Settings,
+    type SearchMatch,
     type TreeNode
   } from '../../shared/protocol'
+  import MissingBanner from './MissingBanner.svelte'
+  import { registerMissingQuickFix, setMissing } from './missing'
+  import { RUNTIME_OWNER, runtimeMarkers } from './markers'
+  import QuickOpen from './QuickOpen.svelte'
 
   const api = window.scriptty
   const mod = api.platform === 'darwin' ? '⌘' : 'Ctrl+'
@@ -29,6 +34,7 @@
   let bodyEl: HTMLDivElement
   let resultsPanel: ReturnType<typeof ResultsPanel>
   let bundlePanel: ReturnType<typeof BundlePanel>
+  let missingBanner: ReturnType<typeof MissingBanner>
   let vimEl = $state<HTMLSpanElement>()
   // Raw: Monaco objects must not be wrapped in a Svelte proxy.
   let editor = $state.raw<monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -41,16 +47,21 @@
   let renaming = $state('')
   let collapsed = $state<Record<string, boolean>>({})
   let settingsOpen = $state(false)
+  let quickOpen = $state(false)
   let notice = $state('')
   let view = $state<'results' | 'bundle'>('results')
+  let sideMode = $state<'files' | 'search'>('files')
+  let searchFocus = $state(0)
   let tabs = $state<string[]>([])
   let ready = $state(false)
+  // Packages the current file imports that are not installed (from the last run).
+  let missing = $state<string[]>([])
   // Cursor, selection and scroll per open file, restored when its tab comes back.
   const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>()
   // Live pane widths while dragging; saved to settings when the drag ends.
   let sideW = $state(DEFAULT_SETTINGS.sidebarWidth)
   let resW = $state(DEFAULT_SETTINGS.resultsWidth)
-  let status = $state<{ mode: 'live' | 'running' | 'paused' | 'debugging'; info: string }>({ mode: 'live', info: '' })
+  let status = $state<{ mode: 'live' | 'running' | 'paused' | 'debugging' | 'stopped'; info: string }>({ mode: 'live', info: '' })
 
   /** The debug run in progress. Only Debug runs stop at breakpoints; live runs never pause. */
   type Session = { runId: number; paused: Paused | null; frame: number; finished: boolean }
@@ -65,6 +76,8 @@
   let runTimer: ReturnType<typeof setTimeout> | undefined
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   let pendingSave: { rel: string; content: string } | null = null
+  // Red squiggles for the current run's thrown errors, on the model that ran.
+  const markers = runtimeMarkers<monaco.editor.ITextModel>((m, ms) => monaco.editor.setModelMarkers(m, RUNTIME_OWNER, ms))
 
   // A run's events can arrive before its invoke reply, so whichever comes first starts the run.
   function startRun(id: number): boolean {
@@ -82,7 +95,20 @@
       status = { mode: 'paused', info: `Line ${r.line}: ${r.error}` }
       return
     }
+    if (r.runId >= currentRun) setMissing((missing = r.missing))
     if (startRun(r.runId)) status = { mode: 'running', info: status.info }
+  }
+
+  /** Kills the current run (servers, intervals); the next edit or Run starts a fresh one as usual. */
+  function stop(): void {
+    clearTimeout(runTimer)
+    api.stop()
+  }
+
+  // After packages change (banner, quick fix or Packages panel): new editor types, and run again.
+  async function packagesChanged(): Promise<void> {
+    setTypeLibs(await api.packages.types())
+    runNow()
   }
 
   function onRunnerEvent(e: RunnerEvent): void {
@@ -91,15 +117,21 @@
     if (fresh) {
       // Keep the previous run's results on screen until the new run says something, to avoid flicker.
       resultsPanel.clear()
+      markers.start(editor?.getModel() ?? null)
       count = 0
       fresh = false
     }
     if (e.type === 'result') {
       count++
       resultsPanel.add(e.line, { kind: e.kind, text: e.text, full: e.full })
+      markers.add(e)
+      // Output after `done` means timers or a server are still going, so offer Stop again.
+      if (status.mode === 'live') status = { mode: 'running', info: status.info }
     } else if (session?.runId === e.runId) {
       session.finished = true
       if (!session.paused) status = { mode: 'debugging', info: `${count} results · finished` }
+    } else if (e.stopped) {
+      status = { mode: 'stopped', info: `${count} results` }
     } else {
       status = { mode: 'live', info: `${count} results · ${e.ms < 10 ? e.ms.toFixed(2) : Math.round(e.ms)}ms` }
     }
@@ -115,6 +147,7 @@
       status = { mode: 'paused', info: r.line ? `Line ${r.line}: ${r.error}` : r.error }
       return
     }
+    if (r.runId >= currentRun) setMissing((missing = r.missing))
     startRun(r.runId)
     // Its first pause can arrive before this reply; the event handler then made the session already.
     if (!endedRuns.has(r.runId) && (!session || session.runId < r.runId)) session = { runId: r.runId, paused: null, frame: 0, finished: false }
@@ -239,6 +272,23 @@
   }
 
   const toggleSidebar = (): Promise<void> => change({ sidebarHidden: !settings.sidebarHidden })
+
+  /** ⇧⌘F: shows the sidebar in Search mode with the query box focused. */
+  function openSearch(): void {
+    if (settings.sidebarHidden) change({ sidebarHidden: false })
+    sideMode = 'search'
+    searchFocus++
+  }
+
+  /** Opens a search hit's file and selects the match. */
+  async function reveal(m: SearchMatch): Promise<void> {
+    await open(m.path)
+    if (!editor || current !== m.path) return
+    const range = new monaco.Range(m.line, m.col, m.line, m.col + m.length)
+    editor.setSelection(range)
+    editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth)
+    editor.focus()
+  }
   const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
 
   function setWidth(which: 'side' | 'res', w: number): void {
@@ -294,6 +344,7 @@
     editor?.setModel(null)
     bundlePanel.clear()
     current = ''
+    setMissing((missing = []))
     resultsPanel.reset()
     status = { mode: 'live', info: '' }
   }
@@ -443,14 +494,18 @@
 
     const off = api.onEvent(onRunnerEvent)
     const offDebug = api.debug.onEvent(onDebugEvent)
+    const offFix = registerMissingQuickFix(monaco, (names) => missingBanner.install(names))
     const offMenu = api.onMenu((a) => {
       if (a.startsWith('debug-') || a === 'toggle-breakpoint') {
         if (lastKey.action !== a || Date.now() - lastKey.at > 300) debugAction(a)
       } else if (a === 'settings') settingsOpen = true
+      else if (a === 'quick-open') quickOpen = true
       else if (a === 'toggle-sidebar') toggleSidebar()
+      else if (a === 'search') openSearch()
       else if (a === 'close-tab') current && closeTab(current)
       else if (a === 'next-tab') cycleTab(1)
       else if (a === 'prev-tab') cycleTab(-1)
+      else if (a === 'stop') stop()
       else create(a === 'new-file' ? 'file' : 'folder')
     })
 
@@ -467,6 +522,10 @@
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runNow())
     const margin = attachBreakpointMargin(ed, syncBreakpoints)
     window.addEventListener('keydown', onDebugKey, true)
+    // Takes ⌘. / Ctrl+. from Quick Fix (still on the lightbulb), so the Stop menu shortcut works while typing.
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Period, stop)
+    // Same as the menu accelerator, bound here too so the editor (and vim mode) never keeps the key for itself.
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, openSearch)
     window.addEventListener('beforeunload', flush)
 
     ;(async () => {
@@ -491,6 +550,7 @@
       offMenu()
       margin.dispose()
       window.removeEventListener('keydown', onDebugKey, true)
+      offFix.dispose()
       ed.dispose()
     }
   })
@@ -506,6 +566,11 @@
       {collapsed}
       {notice}
       {mod}
+      mode={sideMode}
+      {searchFocus}
+      onmode={(m) => (sideMode = m)}
+      onflush={flush}
+      onreveal={reveal}
       ontoggle={toggleSidebar}
       oncreate={create}
       onopen={openNode}
@@ -513,7 +578,7 @@
       onrename={rename}
       oncancel={() => (renaming = '')}
       ondismiss={() => (notice = '')}
-      onpackageschange={async () => setTypeLibs(await api.packages.types())}
+      onpackageschange={packagesChanged}
       oninsert={insertImport}
     />
   {/if}
@@ -541,8 +606,12 @@
       onrun={runNow}
       ondebug={startDebug}
       onstopdebug={stopDebug}
+      running={status.mode === 'running'}
+      onstop={stop}
       onsettings={() => (settingsOpen = true)}
     />
+
+    <MissingBanner bind:this={missingBanner} file={current} {missing} onadded={packagesChanged} />
 
     <div class="body" bind:this={bodyEl} style="grid-template-columns: minmax(0, 1fr) min({resW}px, calc(100% - 240px))">
       <div class="col">
@@ -592,6 +661,7 @@
 </div>
 
 <SettingsDialog open={settingsOpen} {settings} {root} onchange={change} onclose={() => ((settingsOpen = false), editor?.focus())} />
+<QuickOpen bind:open={quickOpen} {tree} {current} {tabs} onopen={open} />
 
 <style>
   .window {
