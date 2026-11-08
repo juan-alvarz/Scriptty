@@ -32,6 +32,8 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
         { label: 'New File', accelerator: 'CmdOrCtrl+N', click: () => send('new-file') },
         { label: 'New Folder', accelerator: 'Shift+CmdOrCtrl+N', click: () => send('new-folder') },
         { type: 'separator' },
+        { label: 'Go to File…', accelerator: 'CmdOrCtrl+P', click: () => send('quick-open') },
+        { type: 'separator' },
         { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => send('close-tab') },
         ...(isMac
           ? [{ label: 'Close Window', accelerator: 'Shift+Cmd+W', role: 'close' } as const]

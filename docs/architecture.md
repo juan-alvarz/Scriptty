@@ -47,11 +47,16 @@ Done (snippets, 2026-11-07):
 - Settings > Snippets: list, add, edit, delete (second click confirms), syntax help, Open snippets file, Show in Finder, Restore starter snippets (puts the starter ones back, keeps the user's own).
 - One completion provider for TS and JS (`src/renderer/src/monaco.ts`); the snippet → suggestion conversion is plain TS in `src/renderer/src/snippets.ts` with unit tests.
 
+Done (quick open, 2026-11-08):
+- ⌘/Ctrl + P (File > Go to File…) opens a fuzzy file switcher over every scratch in the tree (`QuickOpen.svelte`, a native `<dialog>`). With no query, files shown most recently come first and the previous file is preselected, so ⌘P Enter switches back. Up/Down, Enter, Esc and mouse work. File names are bold, folders dimmed, matched characters highlighted.
+- The matcher is `src/renderer/src/fuzzy.ts` (decision 21), unit-tested in `fuzzy.test.ts`. The shortcut is caught by a window capture listener, so Monaco and vim mode (where Ctrl+P is a motion) never swallow it.
+
 Not done yet:
 - Snippets: saving from Settings rewrites `snippets.json` and drops the user's own comments (the explanatory header is rewritten). Monaco's standalone build has no `tabCompletion` (prefix + Tab without the suggestion list), so the list must be open. Snippet variables (`$TM_FILENAME`, `$CLIPBOARD` …) resolve only as far as Monaco's standalone resolvers go.
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - README in package details is plain text, not rendered Markdown.
 - Tabs cannot be reordered by dragging yet.
+- Quick open's recent-files order lives in memory only (lost on restart), and files added outside the app appear only after the tree refreshes.
 - `Bun.*` globals have no editor types (add `bun-types` the same way as `@types/node`).
 - Auto-update wiring, signing.
 - Windows build not run yet (menu accelerators with the hidden title bar need checking there). CI not set up.
@@ -86,6 +91,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 18 | **Main decides which imports are missing**, after instrumenting and before the run; the run still starts | Main knows the packages folder and node's builtin list, so the renderer never guesses. A check is one `existsSync` per bare import, cheap enough for every run. The run is not blocked, so the rest of the scratch's results and bun's own error still show. The editor quick fix is offered only for names main reported, so it never offers to install `fs` while types are loading. | 2026-11-07 |
 | 19 | Runtime errors are **Monaco markers on thrown errors only** | Markers give squiggles, hover and the overview ruler for free and are kept per model, so tabs need no bookkeeping. The runner flags thrown errors and rejections with `thrown: true` on the result event; `console.error` output is a log the user chose to write, so it stays in the results gutter without a squiggle. Hand-made decorations would duplicate what markers already render. | 2026-11-07 |
 | 20 | **User snippets in VS Code's JSON format**, one file in `userData` | Users can paste snippets from VS Code (prefix and body as a string or array, `scope`, tab stops, placeholders, choices) and edit the file by hand; Settings covers the common cases. Main owns the file and rejects edits while it does not parse, so a typo never costs the user their snippets. One global file instead of per-language files keeps v1 simple (decision 5); `scope` still limits a snippet to TS or JS. Snippet suggestions sort inline by match quality (Monaco's default), and win ties with TS suggestions. | 2026-11-07 |
+| 21 | Quick open uses an **in-house fuzzy matcher** | A small dynamic program (about 150 lines, no dependency) picks the best placement of the query: points per matched char, bonuses for consecutive chars and word, camelCase and path-segment starts, a cost per skipped char, and a bonus when the whole query fits in the file name, so name matches beat folder matches. Workspaces are small, so scoring every path per keystroke is cheap. fzf-style libraries (`fzf`, `fuse.js`) were the alternative; they add weight and rank folders and names alike. | 2026-11-08 |
 
 ## Electron on macOS and Windows
 
