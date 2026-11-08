@@ -29,9 +29,13 @@ Done (layout, bundle, imports, 2026-11-07):
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
+Done (README rendering, 2026-11-08):
+- Package READMEs render as Markdown (`src/renderer/src/markdown.ts`, decision 17): headings, code blocks colored with Monaco's tokenizers and scrolling sideways, tables, quotes, lists, task lists, `<details>`, in light and dark.
+- Links open in the browser (https only); `#anchor` links scroll to the heading; relative links resolve against the GitHub or GitLab repository and are dropped for other hosts. Images show as their alt text, linked to the image.
+- Main refuses navigation away from the app page and `window.open` (`will-navigate`, `setWindowOpenHandler`), as a second guard behind the click handler.
+
 Not done yet:
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
-- README in package details is plain text, not rendered Markdown.
 - Tabs cannot be reordered by dragging yet.
 - `Bun.*` globals have no editor types (add `bun-types` the same way as `@types/node`).
 - Auto-update wiring, signing.
@@ -60,6 +64,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | READMEs render with **`marked` + `DOMPurify`**, and **remote images stay blocked** | READMEs are untrusted HTML. DOMPurify is the maintained browser sanitizer and works in the sandboxed renderer; we allowlist tags and attributes (no `style`, `class`, `id`, forms, iframes, SVG), then on an inert `DOMParser` copy keep only https URLs (http upgraded, relative ones resolved against GitHub/GitLab) and turn images into alt-text chips. Together about 80 KB minified. The CSP keeps `img-src 'self' data:`: allowing `https:` would let any README make the app fetch from any host (tracking pixels, IP leaks) for mostly badges. A small image proxy in main could lift this later. Inline handlers in a README make Chromium log a CSP error while parsing; nothing runs. | 2026-11-08 |
 
 ## Electron on macOS and Windows
 
