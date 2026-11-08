@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron'
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, watchFile } from 'node:fs'
 import { writeFile, rm } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { instrument } from './instrument'
@@ -10,8 +10,10 @@ import { loadSettings, sanitize, saveSettings } from './settings'
 import { appMenu, treeMenu } from './menu'
 import { moveTabShortcut } from './shortcuts'
 import { bundle } from './bundle'
+import { installedIn, missingPackages } from './missing'
+import { SnippetStore } from './snippets'
 import { SAMPLE } from '../shared/sample'
-import type { BundleOptions, MenuAction, Result, RunResponse, Settings } from '../shared/protocol'
+import type { BundleOptions, MenuAction, Result, RunResponse, SearchOptions, SearchResult, Settings, Snippet } from '../shared/protocol'
 
 const isMac = process.platform === 'darwin'
 
@@ -89,6 +91,9 @@ function createWindow(): void {
     e.preventDefault()
     win?.webContents.send('menu', a)
   })
+  // Links (README, results) open through `open-external`; the window itself never navigates away or opens others.
+  win.webContents.on('will-navigate', (e, url) => url !== win?.webContents.getURL() && e.preventDefault())
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   if (!isMac) nativeTheme.on('updated', () => win?.setTitleBarOverlay(overlay()))
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -118,6 +123,7 @@ app.whenReady().then(async () => {
 
   let seq = 0
   let lastFile = ''
+  const isInstalled = installedIn(join(dir, 'node_modules'))
   ipcMain.handle('run', async (_e, code: string, rel: string): Promise<RunResponse> => {
     try {
       const ext = extname(rel) || '.ts'
@@ -131,12 +137,14 @@ app.whenReady().then(async () => {
       runner!.run(runId, file, r.imports, dir)
       if (lastFile) rm(lastFile, { force: true }).catch(() => {})
       lastFile = file
-      return { ok: true, runId }
+      return { ok: true, runId, missing: missingPackages(r.imports, isInstalled) }
     } catch (e) {
       // A bad path or a failed write: report it in the status bar instead of rejecting the invoke.
       return { ok: false, error: e instanceof Error ? e.message : String(e), line: 0 }
     }
   })
+
+  ipcMain.handle('stop', () => runner?.stop() ?? false)
 
   ipcMain.handle('settings:get', () => settings)
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => {
@@ -156,10 +164,19 @@ app.whenReady().then(async () => {
   ipcMain.handle('fs:rename', safe((rel: string, name: string) => workspace.rename(rel, name)))
   ipcMain.handle('fs:trash', safe((rel: string) => shell.trashItem(workspace.abs(rel))))
   ipcMain.handle('fs:reveal', safe((rel: string) => (rel ? shell.showItemInFolder(workspace.abs(rel)) : void shell.openPath(workspace.root))))
+  // search() reports a bad regex itself; this catch is for a failed read (a file deleted mid-search).
+  ipcMain.handle('fs:search', async (_e, query: string, o: SearchOptions): Promise<SearchResult> => {
+    try {
+      return await workspace.search(String(query ?? ''), { regex: !!o?.regex, caseSensitive: !!o?.caseSensitive, wholeWord: !!o?.wholeWord })
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
   ipcMain.handle('fs:menu', (e, onItem: boolean) => treeMenu(BrowserWindow.fromWebContents(e.sender)!, onItem))
 
   ipcMain.handle('pkg:list', () => packages.list())
   ipcMain.handle('pkg:add', (_e, spec: string) => packages.add(spec))
+  ipcMain.handle('pkg:add-types', (_e, name: string) => packages.addTypes(name))
   ipcMain.handle('pkg:remove', (_e, name: string) => packages.remove(name))
   ipcMain.handle('pkg:types', () => packages.types(nodeTypes))
   ipcMain.handle('pkg:info', safe((name: string) => packages.info(name)))
@@ -168,6 +185,29 @@ app.whenReady().then(async () => {
     if (!r.ok) throw new Error(r.error)
     return r.value
   }))
+  const snippets = new SnippetStore(join(userData, 'snippets.json'))
+  snippets.ensure()
+  snippets.load()
+  const sendSnippets = (): void => win?.webContents.send('snippets:changed', snippets.state)
+  // Picks up edits made in another editor ("Open snippets file"). Polling copes with editors that replace the file.
+  watchFile(snippets.file, { interval: 1000 }, () => snippets.load() && sendSnippets())
+  const snippetEdit =
+    <A extends unknown[]>(fn: (...a: A) => unknown) =>
+    (...a: A) => {
+      fn(...a)
+      sendSnippets()
+      return snippets.state
+    }
+  ipcMain.handle('snippets:get', () => snippets.state)
+  ipcMain.handle('snippets:put', safe(snippetEdit((oldName: string | null, s: Snippet) => snippets.put(oldName, s))))
+  ipcMain.handle('snippets:remove', safe(snippetEdit((name: string) => snippets.remove(name))))
+  ipcMain.handle('snippets:restore', safe(snippetEdit(() => snippets.restore())))
+  ipcMain.handle('snippets:open', async () => {
+    const err = await shell.openPath(snippets.file)
+    if (err) shell.showItemInFolder(snippets.file) // no app for .json: show it in the file manager instead
+  })
+  ipcMain.handle('snippets:reveal', () => shell.showItemInFolder(snippets.file))
+
   // Only web links leave the app; anything else (file:, custom schemes) is refused.
   ipcMain.handle('open-external', (_e, url: string) => (/^https:\/\//.test(url) ? shell.openExternal(url) : undefined))
 

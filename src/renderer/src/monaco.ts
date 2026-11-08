@@ -2,7 +2,8 @@ import * as monaco from 'monaco-editor'
 import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 import TsWorker from 'monaco-editor/language/typescript/ts.worker.js?worker'
 import { initVimMode, type VimAdapterInstance } from 'monaco-vim'
-import type { TypeLib } from '../../shared/protocol'
+import type { Snippet, TypeLib } from '../../shared/protocol'
+import { toSuggestions } from './snippets'
 
 self.MonacoEnvironment = {
   getWorker: (_id: string, label: string) =>
@@ -32,6 +33,46 @@ export function setTypeLibs(libs: TypeLib[]): void {
   const extra = libs.map((l) => ({ content: l.content, filePath: l.path }))
   ts.typescriptDefaults.setExtraLibs(extra)
   ts.javascriptDefaults.setExtraLibs(extra)
+}
+
+// User snippets (Settings > Snippets). One provider for both languages; it reads the current list on every request.
+let snippets: Snippet[] = []
+export function setSnippets(list: Snippet[]): void {
+  snippets = list
+}
+monaco.languages.registerCompletionItemProvider(['typescript', 'javascript'], {
+  provideCompletionItems(model, position) {
+    const word = model.getWordUntilPosition(position)
+    const lineBefore = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
+    const { lineNumber, column } = position
+    const suggestions = toSuggestions(snippets, model.getLanguageId(), lineBefore, word.startColumn).map((s) => ({
+      ...s,
+      kind: monaco.languages.CompletionItemKind.Snippet,
+      insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+      documentation: { value: s.documentation },
+      range: { startLineNumber: lineNumber, startColumn: s.startColumn, endLineNumber: lineNumber, endColumn: column }
+    }))
+    return { suggestions }
+  }
+})
+
+let packageNames: string[] = []
+/** Installed package names, offered while typing an import path (the TS worker cannot list node_modules). */
+export function setPackageNames(names: string[]): void {
+  packageNames = names
+}
+for (const language of ['typescript', 'javascript']) {
+  monaco.languages.registerCompletionItemProvider(language, {
+    triggerCharacters: ["'", '"'],
+    provideCompletionItems(model, position) {
+      const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
+      const m = /(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s*|\brequire\s*\(\s*)['"]([^'"]*)$/.exec(before)
+      if (!m) return { suggestions: [] }
+      const range = new monaco.Range(position.lineNumber, position.column - m[1].length, position.lineNumber, position.column)
+      const kind = monaco.languages.CompletionItemKind.Module
+      return { suggestions: packageNames.map((name) => ({ label: name, kind, insertText: name, range, detail: 'Installed package' })) }
+    }
+  })
 }
 
 // Graphite syntax colors, same as design/scriptty-graphite.html (git show 42ffcb3).
@@ -92,7 +133,12 @@ export function createEditor(el: HTMLElement): monaco.editor.IStandaloneCodeEdit
     scrollBeyondLastLine: false,
     automaticLayout: true,
     renderLineHighlight: 'line',
-    overviewRulerLanes: 0,
+    // One lane: diagnostics and runtime error markers show in the scrollbar, the cursor does not.
+    overviewRulerLanes: 1,
+    overviewRulerBorder: false,
+    hideCursorInOverviewRuler: true,
+    // Hover and suggest boxes escape the editor's overflow: hidden box (a hover on line 1 was cut off by the tab bar).
+    fixedOverflowWidgets: true,
     scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 }
   })
   applyTheme()
@@ -131,6 +177,22 @@ export function modelFor(rel: string, content: string): monaco.editor.ITextModel
 export function disposeModels(rel: string): void {
   const prefix = uriOf(rel).path
   for (const m of monaco.editor.getModels()) if (m.uri.path === prefix || m.uri.path.startsWith(prefix + '/')) m.dispose()
+}
+
+/** Syntax-colors `<pre><code data-lang>` blocks (rendered Markdown) with Monaco's tokenizers; unknown languages stay plain. */
+export async function colorizeCode(root: HTMLElement): Promise<void> {
+  const langs = monaco.languages.getLanguages()
+  const idFor = (name: string): string | undefined => {
+    const n = name.toLowerCase()
+    return langs.find((l) => l.id === n || l.aliases?.some((a) => a.toLowerCase() === n) || l.extensions?.includes('.' + n))?.id
+  }
+  for (const code of root.querySelectorAll<HTMLElement>('pre > code[data-lang]')) {
+    const id = idFor(code.dataset.lang ?? '')
+    if (!id) continue
+    // colorize escapes the text itself and returns only its own spans.
+    const html = await monaco.editor.colorize(code.textContent?.replace(/\n$/, '') ?? '', id, { tabSize: 2 })
+    if (code.isConnected) code.innerHTML = html.replace(/<br\/>$/, '')
+  }
 }
 
 let vim: VimAdapterInstance | null = null

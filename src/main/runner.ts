@@ -37,6 +37,16 @@ export class Runner {
     this.send(p, { type: 'run', runId, file, dir })
   }
 
+  /** Kills the active run (servers, intervals) and reports it done; the warm spare stays ready. False if nothing was running. */
+  stop(): boolean {
+    const p = this.active
+    if (!p) return false
+    this.active = null // drop anything still buffered from it
+    this.kill(p)
+    this.o.onEvent({ type: 'done', runId: p.runId, ms: 0, stopped: true })
+    return true
+  }
+
   setFreezeMs(ms: number): void {
     this.o.freezeMs = ms
   }

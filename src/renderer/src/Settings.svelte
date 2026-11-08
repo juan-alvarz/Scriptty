@@ -1,13 +1,15 @@
 <script lang="ts">
   import type { Settings } from '../../shared/protocol'
+  import SnippetsPane from './SnippetsPane.svelte'
 
   type Props = { open: boolean; settings: Settings; root: string; onchange: (p: Partial<Settings>) => void; onclose: () => void }
   let { open, settings, root, onchange, onclose }: Props = $props()
 
-  type Tab = 'general' | 'editor' | 'runtime'
+  type Tab = 'general' | 'editor' | 'snippets' | 'runtime'
   const tabs: { id: Tab; label: string }[] = [
     { id: 'general', label: 'General' },
     { id: 'editor', label: 'Editor' },
+    { id: 'snippets', label: 'Snippets' },
     { id: 'runtime', label: 'Runtime' }
   ]
   let tab = $state<Tab>('general')
@@ -87,6 +89,8 @@
               <input id="s-delay" type="number" min="0" max="2000" step="20" value={settings.runDelayMs} onchange={(e) => onchange({ runDelayMs: num(e) })} />
             </div>
           </div>
+        {:else if tab === 'snippets'}
+          <SnippetsPane />
         {:else if tab === 'runtime'}
           <h4>Runtime</h4>
           <div class="grp">
