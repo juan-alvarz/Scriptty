@@ -6,7 +6,8 @@ export type ResultKind = 'value' | 'log' | 'warn' | 'error'
 export type RunnerEvent =
   /** `text` is one line for the gutter; `full` is the pretty, multi-line form for the detail panel. */
   | { type: 'result'; runId: number; line: number; kind: ResultKind; text: string; full?: string }
-  | { type: 'done'; runId: number; ms: number }
+  /** `stopped`: ended by the user (Stop), not by the code finishing. */
+  | { type: 'done'; runId: number; ms: number; stopped?: boolean }
 
 export type ToRunner =
   /** `dir` is the scratch's own folder: the run's working directory. */
@@ -57,7 +58,7 @@ export type TreeNode = { name: string; path: string; kind: 'file' | 'folder'; ch
 
 export type TreeAction = 'new-file' | 'new-folder' | 'rename' | 'trash' | 'reveal'
 
-export type MenuAction = 'settings' | 'new-file' | 'new-folder' | 'toggle-sidebar' | 'close-tab' | 'next-tab' | 'prev-tab'
+export type MenuAction = 'settings' | 'new-file' | 'new-folder' | 'toggle-sidebar' | 'close-tab' | 'next-tab' | 'prev-tab' | 'stop'
 
 export type PackageInfo = { name: string; version: string }
 

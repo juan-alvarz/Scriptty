@@ -29,6 +29,9 @@ Done (layout, bundle, imports, 2026-11-07):
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
+Done (stop, 2026-11-07):
+- Stop a run that keeps going (servers, intervals): Run > Stop (⌘. on macOS, Ctrl+. elsewhere) or the toolbar's Stop button, shown while the status is "Running". `Runner.stop()` kills the active bun process, emits `done` with `stopped: true` and keeps the warm spare, so the next edit runs at once. The status bar then shows "Stopped" until the next run (decision 17).
+
 Not done yet:
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - README in package details is plain text, not rendered Markdown.
@@ -60,6 +63,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | **Stop** kills the active run; ⌘. / Ctrl+. is taken from Monaco's Quick Fix | Servers and intervals otherwise run until the next edit. Killing the process (not clearing timers in the host) is the only stop that always works, and the warm spare keeps the next run instant. The runner cannot tell an idle server from finished code, so the status goes back to "Running" (and Stop shows) when a run sends output after its `done`; an idle server can still be stopped with the shortcut. ⌘. is the macOS cancel key, so the editor rebinds it from Quick Fix (still on the lightbulb) to Stop. | 2026-11-07 |
 
 ## Electron on macOS and Windows
 
@@ -124,7 +128,7 @@ Always keep one fresh runner booted and idle. A run takes the spare at once, the
 
 ### Freeze watchdog (decision 11)
 - The runner sends a heartbeat on a timer. If none arrives for N seconds (Settings > Runtime, "Stop code that freezes for"), main kills it and promotes the spare.
-- Code that is only waiting (servers, `setInterval`, network) keeps running until the next edit replaces it. The status bar shows "Running".
+- Code that is only waiting (servers, `setInterval`, network) keeps running until the next edit replaces it or the user presses Stop (decision 17). The status bar shows "Running".
 
 ## Run pipeline
 

@@ -39,7 +39,7 @@
   // Live pane widths while dragging; saved to settings when the drag ends.
   let sideW = $state(DEFAULT_SETTINGS.sidebarWidth)
   let resW = $state(DEFAULT_SETTINGS.resultsWidth)
-  let status = $state<{ mode: 'live' | 'running' | 'paused'; info: string }>({ mode: 'live', info: '' })
+  let status = $state<{ mode: 'live' | 'running' | 'paused' | 'stopped'; info: string }>({ mode: 'live', info: '' })
 
   let currentRun = -1
   let fresh = false
@@ -67,6 +67,12 @@
     if (startRun(r.runId)) status = { mode: 'running', info: status.info }
   }
 
+  /** Kills the current run (servers, intervals); the next edit or Run starts a fresh one as usual. */
+  function stop(): void {
+    clearTimeout(runTimer)
+    api.stop()
+  }
+
   function onRunnerEvent(e: RunnerEvent): void {
     if (e.runId < currentRun) return
     startRun(e.runId)
@@ -79,6 +85,10 @@
     if (e.type === 'result') {
       count++
       resultsPanel.add(e.line, { kind: e.kind, text: e.text, full: e.full })
+      // Output after `done` means timers or a server are still going, so offer Stop again.
+      if (status.mode === 'live') status = { mode: 'running', info: status.info }
+    } else if (e.stopped) {
+      status = { mode: 'stopped', info: `${count} results` }
     } else {
       status = { mode: 'live', info: `${count} results · ${e.ms < 10 ? e.ms.toFixed(2) : Math.round(e.ms)}ms` }
     }
@@ -318,6 +328,7 @@
       else if (a === 'close-tab') current && closeTab(current)
       else if (a === 'next-tab') cycleTab(1)
       else if (a === 'prev-tab') cycleTab(-1)
+      else if (a === 'stop') stop()
       else create(a === 'new-file' ? 'file' : 'folder')
     })
 
@@ -331,6 +342,8 @@
       }
     })
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runNow())
+    // Takes ⌘. / Ctrl+. from Quick Fix (still on the lightbulb), so the Stop menu shortcut works while typing.
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Period, stop)
     window.addEventListener('beforeunload', flush)
 
     ;(async () => {
@@ -399,6 +412,8 @@
       ontogglesidebar={toggleSidebar}
       ontoggleautorun={() => change({ autoRun: !settings.autoRun })}
       onrun={runNow}
+      running={status.mode === 'running'}
+      onstop={stop}
       onsettings={() => (settingsOpen = true)}
     />
 
