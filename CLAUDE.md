@@ -16,7 +16,7 @@ UI mocks were removed from the tree; read them from history: `git show 42ffcb3:d
 
 ## Layout
 
-- `src/main/`: Electron main, `instrument.ts` (oxc), `runner.ts` (bun process pool), `workspace.ts` (scratch files), `packages.ts` (bun add/remove, editor types), `settings.ts`, `menu.ts`
+- `src/main/`: Electron main, `instrument.ts` (oxc), `runner.ts` (bun process pool), `workspace.ts` (scratch files), `packages.ts` (bun add/remove, editor types), `settings.ts`, `menu.ts`, `env.ts` (`.env` files for runs)
 - `resources/runner/host.ts`: runs inside bun, executes the instrumented scratch
 - `src/preload/`: the only bridge the renderer gets (`window.scriptty`)
 - `src/renderer/src/`: Svelte 5 UI and Monaco setup

@@ -5,6 +5,11 @@ import type { TreeNode } from '../shared/protocol'
 
 export const SCRIPT_EXT = /\.(ts|mts|cts|js|mjs|cjs)$/i
 
+const ENV_HEADER = `# Variables for scratches in this folder and its subfolders: process.env.NAME
+# A .env in a nearer folder overrides this one. Quotes, export and \${NAME} work.
+# NAME=value
+`
+
 /** Scratch files on disk. All paths in and out are workspace-relative with forward slashes. */
 export class Workspace {
   constructor(readonly root: string) {}
@@ -72,6 +77,17 @@ export class Workspace {
     if (kind === 'file') await writeFile(abs, '', { flag: 'wx' })
     else await mkdir(abs)
     return this.rel(abs)
+  }
+
+  /** The `.env` in folder `dirRel` (src/main/env.ts), created with a short header if missing. Returns its absolute path. */
+  async envFile(dirRel: string): Promise<string> {
+    const dir = this.abs(dirRel)
+    if (!(await stat(dir)).isDirectory()) throw new Error('Not a folder')
+    const abs = join(dir, '.env')
+    await writeFile(abs, ENV_HEADER, { flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
+      if (e.code !== 'EEXIST') throw e
+    })
+    return abs
   }
 
   async rename(rel: string, newName: string): Promise<string> {

@@ -9,9 +9,10 @@ export type RunnerEvent =
   | { type: 'done'; runId: number; ms: number }
 
 export type ToRunner =
-  /** `dir` is the scratch's own folder: the run's working directory. */
-  | { type: 'run'; runId: number; file: string; dir: string }
-  | { type: 'preload'; modules: string[]; cwd: string }
+  /** `dir` is the scratch's own folder: the run's working directory. `env` comes from its `.env` files (src/main/env.ts). */
+  | { type: 'run'; runId: number; file: string; dir: string; env: Record<string, string> }
+  /** `env` is applied before the imports, so packages that read it on load see the scratch's `.env`. */
+  | { type: 'preload'; modules: string[]; cwd: string; env: Record<string, string> }
 
 export type FromRunner = RunnerEvent | { type: 'hb' }
 
@@ -55,7 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
 /** Paths are workspace-relative with forward slashes. */
 export type TreeNode = { name: string; path: string; kind: 'file' | 'folder'; children?: TreeNode[] }
 
-export type TreeAction = 'new-file' | 'new-folder' | 'rename' | 'trash' | 'reveal'
+export type TreeAction = 'new-file' | 'new-folder' | 'rename' | 'trash' | 'reveal' | 'edit-env'
 
 export type MenuAction = 'settings' | 'new-file' | 'new-folder' | 'toggle-sidebar' | 'close-tab' | 'next-tab' | 'prev-tab'
 

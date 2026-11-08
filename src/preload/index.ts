@@ -38,6 +38,8 @@ const api = {
     rename: (rel: string, name: string): Promise<Result<string>> => ipcRenderer.invoke('fs:rename', rel, name),
     trash: (rel: string): Promise<Result> => ipcRenderer.invoke('fs:trash', rel),
     reveal: (rel: string): Promise<Result> => ipcRenderer.invoke('fs:reveal', rel),
+    /** Opens the `.env` in folder `dirRel` in the system editor, creating it if missing. */
+    editEnv: (dirRel: string): Promise<Result> => ipcRenderer.invoke('fs:edit-env', dirRel),
     menu: (onItem: boolean): Promise<TreeAction | null> => ipcRenderer.invoke('fs:menu', onItem)
   },
   packages: {

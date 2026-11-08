@@ -29,6 +29,12 @@ Done (layout, bundle, imports, 2026-11-07):
 - The sidebar toggle sits inside the window-drag strips (sidebar top or toolbar, always 80px from the edge on macOS). Electron applies `-webkit-app-region` in document order, so a no-drag element placed before a drag region loses; keep clickable things inside the drag container.
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
+Done (.env files, 2026-11-08):
+- Scratches read `.env` files (decision 17). Before each run, main loads `.env` from the workspace root down to the scratch's folder; a nearer file overrides a farther one, and `.env` values override the app's own environment. Parser in `src/main/env.ts`: single, double (`\n`, `\t`, `\"`, `\\`, `\$` escapes, may span lines) and backtick quotes, `#` comments (` #` after an unquoted value), `export `, `KEY=`, CRLF. `${NAME}` expands in unquoted and double-quoted values, from earlier lines, farther files, then the app's environment (else empty); `$NAME` without braces stays literal so passwords with `$` survive.
+- Parsed files are cached by mtime and size, so a run costs a few `stat` calls. Values go only to the runner on the run message (`env`), never to a log or the renderer.
+- The runner sets them on `process.env` before importing the scratch. The warm spare preloads packages with the same `env`, so packages that read it on load see it; if the next run's `.env` differs, that spare is killed and a clean process takes the run, so nothing leaks between runs.
+- Tree context menu: "Edit .env" opens the `.env` of the clicked folder (a file's own folder, or the root for the empty area) in the system editor, creating it with a short header if missing. Dotfiles stay hidden in the tree.
+
 Not done yet:
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - README in package details is plain text, not rendered Markdown.
@@ -37,6 +43,7 @@ Not done yet:
 - Auto-update wiring, signing.
 - Windows build not run yet (menu accelerators with the hidden title bar need checking there). CI not set up.
 - The native context menu and ⌘, accelerator were checked by hand only; automated tests cover the main-process logic.
+- Saving a `.env` in the external editor does not re-run the scratch; the next run (any edit, or Run) picks it up.
 
 Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26 MB, mostly Monaco).
 
@@ -60,6 +67,7 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 14 | Scratches live in **`~/Documents/Scriptty`** as plain files and folders | Users can see, back up and version them with any tool. Only script files (`.ts`, `.js`, `.mts`, `.mjs`, `.cts`, `.cjs`) show in the tree. Deletes go to the system Trash. | 2026-11-06 |
 | 15 | Vim mode via **`monaco-vim`**; dialogs via native **`<dialog>`** | `monaco-vim` is the maintained Monaco binding. Native `<dialog>` gives modal focus trapping and Esc for free, so Bits UI waits until a primitive HTML lacks (menus, comboboxes). | 2026-11-06 |
 | 16 | App icon is **Wink, close-up** | A cat head, because Scriptty ends in “tty” (kitty). The prompt chevron is a winking eye and the cobalt result dot is the open one, so it keeps the earlier chevron-and-dot mark. The head is cropped by the bottom edge so the face stays readable at 16 and 32 px. Sources are `build/icon.svg` (macOS grid: 824 px body on 1024, with shadow) and `build/icon-win.svg` (full bleed, no shadow); `pnpm icons` builds the `.icns`, `.ico` and the `.png` used for the Dock in dev. electron-builder picks them up from `build/` by default. | 2026-11-07 |
+| 17 | **`.env` files** load per run from the workspace root down to the scratch's folder (nearer wins), parsed in main by our own small parser, and are edited **in the system editor** (`shell.openPath`, falling back to `open -t` on macOS and Notepad on Windows when no app owns `.env`) | Users expect dotenv to work in a scratchpad, and per-folder files let a folder of scratches share keys. Our parser (about 100 lines) avoids a dependency and gives `${NAME}` expansion with the precedence we want; bun's own `.env` loading only reads the process's start directory, which is the shared packages folder. Opening `.env` in a Monaco tab would touch tabs, autorun, Bundle, type-checking and settings, which all assume script files, for a file edited rarely. | 2026-11-08 |
 
 ## Electron on macOS and Windows
 

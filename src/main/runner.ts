@@ -13,7 +13,8 @@ export type RunnerOptions = {
   onEvent: (e: RunnerEvent) => void
 }
 
-type Proc = { child: ChildProcessWithoutNullStreams; lastBeat: number; runId: number; exited: boolean; killed: boolean }
+/** `env` is the `.env` a spare was preloaded with (JSON), or null if it is still clean. */
+type Proc = { child: ChildProcessWithoutNullStreams; lastBeat: number; runId: number; exited: boolean; killed: boolean; env: string | null }
 
 /** Warm spare runner (decision 10): one fresh bun process waits, ready to take the next run. */
 export class Runner {
@@ -27,14 +28,17 @@ export class Runner {
     this.watchdog.unref()
   }
 
-  run(runId: number, file: string, preload: string[], dir: string): void {
+  /** `env` holds the scratch's `.env` variables, set on `process.env` before the code runs. */
+  run(runId: number, file: string, preload: string[], dir: string, env: Record<string, string> = {}): void {
     if (this.active) this.kill(this.active)
-    const p = this.spare.exited ? this.spawn([]) : this.spare
-    this.spare = this.spawn(preload)
+    // A spare preloaded under a different .env would carry those variables into this run.
+    if (this.spare.env !== null && this.spare.env !== JSON.stringify(env)) this.kill(this.spare)
+    const p = this.spare.exited || this.spare.killed ? this.spawn([]) : this.spare
+    this.spare = this.spawn(preload, env)
     this.active = p
     p.runId = runId
     p.lastBeat = Date.now()
-    this.send(p, { type: 'run', runId, file, dir })
+    this.send(p, { type: 'run', runId, file, dir, env })
   }
 
   setFreezeMs(ms: number): void {
@@ -60,7 +64,7 @@ export class Runner {
     this.o.onEvent({ type: 'done', runId: p.runId, ms: 0 })
   }
 
-  private spawn(preload: string[]): Proc {
+  private spawn(preload: string[], env: Record<string, string> = {}): Proc {
     // --no-install: bun would otherwise fetch unknown imports from npm mid-run (and freeze while typing a name).
     // NODE_PATH: files the scratch imports find the shared packages too, wherever they live.
     const child = spawn(this.o.bun, ['--no-install', this.o.host], {
@@ -68,7 +72,7 @@ export class Runner {
       env: { ...process.env, NODE_PATH: join(this.o.cwd, 'node_modules'), NO_COLOR: '1', FORCE_COLOR: '0' },
       windowsHide: true
     })
-    const p: Proc = { child, lastBeat: Date.now(), runId: -1, exited: false, killed: false }
+    const p: Proc = { child, lastBeat: Date.now(), runId: -1, exited: false, killed: false, env: preload.length ? JSON.stringify(env) : null }
     child.stdin.on('error', () => {})
     createInterface({ input: child.stdout }).on('line', (line) => this.onLine(p, line))
     createInterface({ input: child.stderr }).on('line', (line) => this.forward(p, { kind: 'warn', text: line }))
@@ -80,7 +84,7 @@ export class Runner {
       p.exited = true
       if (p === this.active && !p.killed) this.finish(p, `The runtime exited (${signal ?? code})`)
     })
-    if (preload.length) this.send(p, { type: 'preload', modules: preload, cwd: this.o.cwd })
+    if (preload.length) this.send(p, { type: 'preload', modules: preload, cwd: this.o.cwd, env })
     return p
   }
 

@@ -95,6 +95,7 @@ export function fmt(v: unknown, d = 0): string {
 for await (const raw of console) {
   const m = JSON.parse(raw)
   if (m.type === 'preload') {
+    Object.assign(process.env, m.env)
     for (const name of m.modules) {
       try {
         await import(Bun.resolveSync(name, m.cwd))
@@ -105,6 +106,7 @@ for await (const raw of console) {
   } else if (m.type === 'run') {
     runId = m.runId
     fileName = m.file.split(/[\\/]/).pop() ?? ''
+    Object.assign(process.env, m.env) // the scratch's .env; this process ends with the run, so nothing leaks
     try {
       process.chdir(m.dir) // relative fs paths in the scratch resolve next to the scratch
     } catch {

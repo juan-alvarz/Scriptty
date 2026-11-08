@@ -71,7 +71,8 @@ export function treeMenu(win: BrowserWindow, onItem: boolean): Promise<TreeActio
       item('New Folder', 'new-folder'),
       { type: 'separator' },
       ...(onItem ? [item('Rename', 'rename'), item('Move to Trash', 'trash'), { type: 'separator' } as const] : []),
-      item(isMac ? 'Reveal in Finder' : 'Show in Explorer', 'reveal')
+      item(isMac ? 'Reveal in Finder' : 'Show in Explorer', 'reveal'),
+      item('Edit .env', 'edit-env')
     ]
     // The close callback can fire before the click handler, so give the click a moment to win.
     Menu.buildFromTemplate(template).popup({ window: win, callback: () => setTimeout(() => resolve(null), 50) })
