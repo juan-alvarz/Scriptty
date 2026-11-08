@@ -3,7 +3,8 @@
   import { copyText } from './clipboard'
   import type { ResultKind } from '../../shared/protocol'
 
-  type Entry = { kind: ResultKind; text: string; full?: string }
+  /** `calls`: how many calls the entry stands for (default 1, see RunnerEvent in shared/protocol.ts). */
+  type Entry = { kind: ResultKind; text: string; full?: string; calls?: number }
   type Props = { editor: monaco.editor.IStandaloneCodeEditor | null; fontSize: number; hidden: boolean; stale: boolean }
   let { editor, fontSize, hidden, stale }: Props = $props()
 
@@ -15,6 +16,7 @@
   let queued = false
 
   const NO_ENTRIES: Entry[] = []
+  const callsOf = (entries: Entry[]): number => entries.reduce((n, e) => n + (e.calls ?? 1), 0)
   const lineHeight = $derived(lineHeightFor(fontSize))
   const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
@@ -51,9 +53,13 @@
       for (const [line, entries] of results) {
         const top = editor.getTopForLineNumber(line) - scroll
         if (top < -lineHeight || top > height) continue
-        const cls = (entries.some((e) => e.kind === 'error') ? ' err' : '') + (detail?.line === line ? ' sel' : '')
-        const body = entries.map((e) => `<span class="${e.kind}">${esc(e.text)}</span>`).join('<span class="sep"> · </span>')
-        const n = entries.length > 1 ? `<span class="n">×${entries.length}</span>` : ''
+        // The latest output (the latest error, if any) and how many calls the line made, the full list is in the panel.
+        const err = entries.findLast((e) => e.kind === 'error')
+        const last = err ?? entries[entries.length - 1]
+        const calls = callsOf(entries)
+        const cls = (err ? ' err' : '') + (detail?.line === line ? ' sel' : '')
+        const body = `<span class="${last.kind}">${esc(last.text)}</span>`
+        const n = calls > 1 ? `<span class="n">×${calls}</span>` : ''
         html += `<button class="row${cls}" data-line="${line}" style="top:${top}px" title="Show full output"><span class="t">${body}</span>${n}</button>`
       }
       gutterEl.innerHTML = html
@@ -93,13 +99,14 @@
     <section class="panel" aria-label="Output of line {detail.line}">
       <header>
         <b>Line {detail.line}</b>
-        <span class="muted">{detail.entries.length} {detail.entries.length === 1 ? 'output' : 'outputs'}</span>
+        <span class="muted">{detail.entries.length} {detail.entries.length === 1 ? 'output' : 'outputs'}{callsOf(detail.entries) > detail.entries.length ? ` · ${callsOf(detail.entries)} calls` : ''}</span>
         <span class="sp"></span>
         <button class="tbtn" onclick={() => detail && copyText(detail.entries.map((e) => e.full ?? e.text).join('\n'))}>Copy</button>
         <button class="tbtn" aria-label="Close output" onclick={() => ((detail = null), paint())}>×</button>
       </header>
       <div class="pbody">
         {#each detail.entries as e, i (i)}
+          {#if (e.calls ?? 1) > 1}<p class="muted calls">Latest of {e.calls} calls</p>{/if}
           <pre class={e.kind}>{e.full ?? e.text}</pre>
         {:else}
           <p class="muted">No output on this line yet.</p>
@@ -224,10 +231,15 @@
     overflow-wrap: anywhere;
     line-height: 1.5;
   }
+  .pbody .calls {
+    margin: 0 0 4px;
+    font: 11px var(--ui);
+  }
   .pbody pre:last-child {
     margin-bottom: 0;
   }
-  .pbody pre + pre {
+  .pbody pre + pre,
+  .pbody pre + .calls {
     border-top: 1px dashed var(--line);
     padding-top: 8px;
   }

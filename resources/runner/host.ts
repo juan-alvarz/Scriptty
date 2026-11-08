@@ -13,26 +13,54 @@ setInterval(() => send({ type: 'hb' }), 200)
 
 // Pretty, multi-line form for the detail panel.
 const pretty = (v: unknown): string => Bun.inspect(v, { depth: 8, colors: false })
-const value = (line: number, v: unknown): void =>
-  send({ type: 'result', runId, line, kind: 'value', text: fmt(v), full: pretty(v) })
+const value = (v: unknown) => (): Out => ({ text: fmt(v), full: pretty(v) })
+
+type Out = { text: string; full?: string }
+// A line sends its first CAP outputs one by one. After that it keeps only the latest output and how many calls it
+// stands for, sent at most every FLUSH_MS and when the top level finishes, so a tight loop cannot flood IPC.
+// Held outputs are formatted when sent, so an object mutated in the meantime shows its newer state.
+const CAP = 100
+const FLUSH_MS = 200
+const sent = new Map<number, number>()
+const held = new Map<number, { kind: string; out: () => Out; calls: number }>()
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+function report(line: number, kind: string, out: () => Out, calls = 1): void {
+  const n = sent.get(line) ?? 0
+  if (n < CAP) {
+    sent.set(line, n + 1)
+    send({ type: 'result', runId, line, kind, ...out(), ...(calls === 1 ? {} : { calls }) })
+    return
+  }
+  held.set(line, { kind, out, calls: (held.get(line)?.calls ?? 0) + calls })
+  flushTimer ??= setTimeout(flush, FLUSH_MS)
+}
+
+function flush(): void {
+  if (flushTimer) clearTimeout(flushTimer)
+  flushTimer = null
+  for (const [line, h] of held) send({ type: 'result', runId, line, kind: h.kind, ...h.out(), calls: h.calls })
+  held.clear()
+}
 
 const g = globalThis as Record<string, unknown>
-g.__r = (line: number, v: unknown): unknown => {
+/** `quiet` (calls and `void`, see src/main/instrument.ts): an `undefined` result is not shown. */
+g.__r = (line: number, v: unknown, quiet?: 1): unknown => {
   if (isThenable(v)) {
-    send({ type: 'result', runId, line, kind: 'value', text: 'Promise { <pending> }' })
+    if (!quiet) report(line, 'value', () => ({ text: 'Promise { <pending> }' }))
     v.then(
-      (x) => value(line, x),
+      (x) => void (quiet && x === undefined ? 0 : report(line, 'value', value(x), quiet ? 1 : 0)),
       (e) => sendError(e, line)
     )
-  } else {
-    value(line, v)
+  } else if (!(quiet && v === undefined)) {
+    report(line, 'value', value(v))
   }
   return v
 }
 g.__log = (line: number, method: string) => (...args: unknown[]): void => {
   const kind = method === 'warn' ? 'warn' : method === 'error' ? 'error' : 'log'
   const each = (f: (a: unknown) => string): string => args.map((a) => (typeof a === 'string' ? a : f(a))).join(' ')
-  send({ type: 'result', runId, line, kind, text: each(fmt), full: each(pretty) })
+  report(line, kind, () => ({ text: each(fmt), full: each(pretty) }))
 }
 
 process.on('uncaughtException', (e) => sendError(e))
@@ -116,6 +144,7 @@ for await (const raw of console) {
     } catch (e) {
       sendError(e)
     }
+    flush()
     send({ type: 'done', runId, ms: performance.now() - t0 })
   }
 }

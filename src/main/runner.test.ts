@@ -43,11 +43,46 @@ describe('runner', () => {
       ['const xs: number[] = [1, 2, 3]', 'xs.length', 'console.log("sum", xs.reduce((a, b) => a + b, 0))', 'await Promise.resolve("ok")', 'null.x'].join('\n')
     )
     expect(results(es)).toEqual([
+      '1 value [1, 2, 3]',
       '2 value 3',
       '3 log sum 6',
       '4 value "ok"',
       expect.stringMatching(/^5 error TypeError/)
     ])
+  })
+
+  it('reports declarations, loop bodies with call counts, //? lines, and caps output per line', async () => {
+    const es = await runCode(
+      [
+        'const total = [1, 2, 3].length',
+        'let acc = 0',
+        'for (let i = 1; i <= 3; i++) {',
+        '  acc += i',
+        '}',
+        'function twice(n: number) {',
+        '  return n * 2 //?',
+        '}',
+        'twice(1) + twice(5);',
+        '[1, 2].forEach((x) => {})',
+        'const pr = Promise.resolve(7)',
+        'for (let i = 0; i < 1000; i++) i',
+        'Promise.resolve(8)'
+      ].join('\n')
+    )
+    const on = (line: number) => es.flatMap((e) => (e.type === 'result' && e.line === line ? [e] : []))
+    const calls = (line: number) => on(line).reduce((n, e) => n + (e.type === 'result' ? (e.calls ?? 1) : 0), 0)
+    const last = (line: number) => on(line).at(-1)
+    expect(results(es).slice(0, 2)).toEqual(['1 value 3', '2 value 0'])
+    expect(on(4).map((e) => e.text)).toEqual(['1', '3', '6'])
+    expect(on(7).map((e) => e.text)).toEqual(['2', '10'])
+    expect(on(10)).toEqual([]) // forEach returns undefined: not shown
+    expect(on(11).map((e) => e.text)).toEqual(['Promise { <pending> }', '7'])
+    expect(calls(11)).toBe(1)
+    expect(on(13).map((e) => e.text)).toEqual(['8']) // a call's promise shows only once it settles
+    // 1000 iterations: the first 100 one by one, then one entry with the latest value standing for the rest.
+    expect(on(12)).toHaveLength(101)
+    expect(last(12)).toMatchObject({ text: '999', calls: 900 })
+    expect(calls(12)).toBe(1000)
   })
 
   it('runs imports between scratch files, packages from nested files, and relative fs paths', async () => {

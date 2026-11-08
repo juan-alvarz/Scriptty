@@ -77,8 +77,8 @@
       fresh = false
     }
     if (e.type === 'result') {
-      count++
-      resultsPanel.add(e.line, { kind: e.kind, text: e.text, full: e.full })
+      count += e.calls ?? 1
+      resultsPanel.add(e.line, { kind: e.kind, text: e.text, full: e.full, calls: e.calls })
     } else {
       status = { mode: 'live', info: `${count} results · ${e.ms < 10 ? e.ms.toFixed(2) : Math.round(e.ms)}ms` }
     }
