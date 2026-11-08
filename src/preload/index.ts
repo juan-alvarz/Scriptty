@@ -1,7 +1,13 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
   Added,
+  Breakpoints,
   BundleOptions,
+  DebugCommand,
+  DebugEvent,
+  DebugScope,
+  DebugValue,
+  DebugVar,
   MenuAction,
   PackageList,
   PackageDetails,
@@ -31,6 +37,18 @@ const api = {
   stop: (): Promise<boolean> => ipcRenderer.invoke('stop'),
   onEvent: (cb: (e: RunnerEvent) => void) => listen('runner:event', cb),
   onMenu: (cb: (a: MenuAction) => void) => listen('menu', cb),
+  debug: {
+    /** Runs `code` as `file` with the debugger attached; it stops at `breakpoints` and `debugger;` statements. */
+    start: (code: string, file: string, breakpoints: Breakpoints): Promise<RunResponse> => ipcRenderer.invoke('debug:start', code, file, breakpoints),
+    command: (c: DebugCommand): Promise<void> => ipcRenderer.invoke('debug:command', c),
+    stop: (): Promise<void> => ipcRenderer.invoke('debug:stop'),
+    setBreakpoints: (file: string, lines: number[]): Promise<void> => ipcRenderer.invoke('debug:breakpoints', file, lines),
+    scopes: (frame: number): Promise<Result<DebugScope[]>> => ipcRenderer.invoke('debug:scopes', frame),
+    /** Watch: evaluates expressions in a frame of the current pause, one value per expression. */
+    watch: (frame: number, expressions: string[]): Promise<Result<DebugValue[]>> => ipcRenderer.invoke('debug:watch', frame, expressions),
+    props: (objectId: string, type: string): Promise<Result<DebugVar[]>> => ipcRenderer.invoke('debug:props', objectId, type),
+    onEvent: (cb: (e: DebugEvent) => void) => listen('debug:event', cb)
+  },
   settings: {
     get: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
     set: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke('settings:set', patch)

@@ -2,7 +2,7 @@
 
 Scriptty is a desktop scratchpad that runs TypeScript and JavaScript as you type and shows each line's result beside it.
 
-Status: architecture decided (decisions 1 to 24). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
+Status: architecture decided (decisions 1 to 27). Scaffold runs end to end. UI mocks were removed; they live in git history at commit `42ffcb3` under `design/`.
 
 ## Implementation status
 
@@ -30,7 +30,7 @@ Done (layout, bundle, imports, 2026-11-07):
 - The runner starts bun with `--no-install`, so a missing package fails at once instead of bun fetching it from npm (this caused "stopped responding" while typing an import).
 
 Done (stop, 2026-11-07):
-- Stop a run that keeps going (servers, intervals): Run > Stop (⌘. on macOS, Ctrl+. elsewhere) or the toolbar's Stop button, shown while the status is "Running". `Runner.stop()` kills the active bun process, emits `done` with `stopped: true` and keeps the warm spare, so the next edit runs at once. The status bar then shows "Stopped" until the next run (decision 17).
+- Stop a run that keeps going (servers, intervals): Run > Stop (⌘. on macOS, Ctrl+. elsewhere) or the toolbar's Stop button, shown while the status is "Running". `Runner.stop()` kills the active bun process, emits `done` with `stopped: true` and keeps the warm spare, so the next edit runs at once. The status bar then shows "Stopped" until the next run (decision 25).
 
 Done (missing packages, 2026-11-07):
 - When a scratch imports a package that is not installed, a slim banner above the editor and results says "`lodash` isn't installed — Add · Add all (n)". Adding shows progress in the banner, reloads editor types, refreshes the Packages panel and runs again. × dismisses it for that file (a package that goes missing later shows again).
@@ -61,7 +61,17 @@ Done (search, 2026-11-08):
 - `Workspace.search` in main (`src/main/workspace.ts`); an invalid regex comes back as `{ ok: false, error }` and is shown under the box. The open file is saved before each search, so unsaved typing is found.
 - The editor also binds ⇧⌘F itself (like ⌘Enter), so Monaco and vim mode never keep the key from the menu.
 
+Done (debugger, 2026-11-08):
+- Debug runs (decision 25): **Start debugging** in the right panel's **Debugger** tab (or F5, ⌘/Ctrl+Shift+D, Debug > Start Debugging), separate from the live run. The toolbar has no Debug button (decision 27). Live as-you-type runs are unchanged and never pause; breakpoints only take effect in a Debug run.
+- Breakpoints: click the editor's glyph margin (red dot; a faint dot previews the spot) or press F9 on the cursor line, at any time. They are Monaco decorations, so they follow their line while you edit, and changes reach a running debug session at once. Breakpoints in scratches the file imports work too.
+- Debugger tab (decision 27), next to Results and Bundle: its label carries a badge with the breakpoint count and a dot while paused. It lists every breakpoint as file:line with the line's code (refreshed as edits move them); click one to open its file on that line, × removes it, Clear all removes every one. The header shows the session state with Start debugging, or the stepping controls and Stop during a run.
+- When a debug run stops at a breakpoint or a `debugger;` statement, the line is highlighted (opening the file if it is another scratch) and the Debugger tab comes to the front: call stack (click a frame to show its line and variables) and scopes (Local, Closure, Module) with expandable objects, arrays, maps and sets. Continue (F8, or F5 while paused), Step Over (F10), Step Into (F11), Step Out (⇧F11), Stop (⇧F5). The same items are in a Debug menu. While paused, the breakpoint list docks under the call stack and variables, and the breakpoint that was hit is highlighted.
+- Watch (decision 26): a Watch list at the top of the variables column while paused. Type an expression in "Add expression…" and press Enter; double-click an entry (or its pencil) to edit it, Enter saves, Esc cancels, an empty entry is removed; × removes it. Each pause, step and frame pick re-evaluates every entry in the selected frame. Objects expand like variables. A name not in scope (or not initialized yet) shows "not available"; an expression that throws shows its error in red. The list is kept in settings (`watches`), so it survives restarts and applies to every file.
+- Results and logs still stream to the gutter during a debug run. While paused, live runs wait; Stop (or the run's process ending) hands back to live runs with the current text. Editing while the debug run is not paused replaces it with a live run, like any run.
+- Tests spawn real bun with the inspector: breakpoint with locals, step over/out, `debugger;` with object expansion, scope grouping, Step Into past the instrumentation wrappers, breakpoints in an imported file and while running, the watchdog leaving a paused run alone, Stop, and watch expressions (values per frame and after steps, out of scope, thrown errors, expanding a watched object).
+
 Not done yet:
+- Debugger: breakpoints are not saved across restarts; no conditional breakpoints or console while paused; watch expressions run for real (`n++` changes `n`, a call runs the function) and one that loops forever hangs the debug run until Stop; no pause-on-exceptions (the host catches every error, so "uncaught" never fires). A busy loop cannot be paused: bun answers the inspector on the JS thread, so the freeze watchdog still ends it. After the top level finishes, a debug run stays attached (for timers and callbacks) until Stop or an edit.
 - Snippets: saving from Settings rewrites `snippets.json` and drops the user's own comments (the explanatory header is rewritten). Monaco's standalone build has no `tabCompletion` (prefix + Tab without the suggestion list), so the list must be open. Snippet variables (`$TM_FILENAME`, `$CLIPBOARD` …) resolve only as far as Monaco's standalone resolvers go.
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
 - Tabs cannot be reordered by dragging yet.
@@ -105,6 +115,9 @@ Size of the unpacked macOS app: about 383 MB (Electron 253 MB, bun 96 MB, app 26
 | 22 | READMEs render with **`marked` + `DOMPurify`**, and **remote images stay blocked** | READMEs are untrusted HTML. DOMPurify is the maintained browser sanitizer and works in the sandboxed renderer; we allowlist tags and attributes (no `style`, `class`, `id`, forms, iframes, SVG), then on an inert `DOMParser` copy keep only https URLs (http upgraded, relative ones resolved against GitHub/GitLab) and turn images into alt-text chips. Together about 80 KB minified. The CSP keeps `img-src 'self' data:`: allowing `https:` would let any README make the app fetch from any host (tracking pixels, IP leaks) for mostly badges. A small image proxy in main could lift this later. Inline handlers in a README make Chromium log a CSP error while parsing; nothing runs. | 2026-11-08 |
 | 23 | Search runs in **main, in JS, over the same files as the editor models** | Reuses `readAll()` and its limits (300 script files, 512 KB each; binary files skipped), so search sees exactly what type-checking sees and needs no new dependency or bundled ripgrep. Matching is per line with a JS `RegExp` (columns are UTF-16 units, the same as Monaco). Results stop at 2000 matches or 200 files and say so. A bad regex is a typed result, not a thrown error. `$` counts as a word character for whole word, since it is one in JS identifiers. Ripgrep or a worker is the upgrade path if workspaces grow. | 2026-11-08 |
 | 24 | Untyped packages: **offer `@types/<name>`** after the add | Packages like lodash ship no `.d.ts`, so the editor had nothing to autocomplete. After adding one, the Packages panel asks to install its DefinitelyTyped package, only when npm has it; package details also have an Install types button. Type packages are dev dependencies, listed apart under a collapsible Type libraries group, and removing a package removes its types. A package with no types anywhere gets `declare module "name"` so its import is `any`, not an error. The import path also offers installed package names, since Monaco's TS worker cannot list `node_modules`. | 2026-11-07 |
+| 25 | Debugger: a **Debug run is its own bun process with the inspector**, driven from main over WebSocket | Bun ships a WebKit Inspector Protocol server (`--inspect=127.0.0.1:0/<random path>`); main connects with Node's global `WebSocket`, so no dependency. Live runs keep the warm spare without an inspector, so they never pause and stay as fast as before. Bun reprints every file it loads (comments, blank lines and types go), so lines go through the inline source map it reports; our instrumentation keeps editor lines, so mapping back lands on editor lines. Breakpoints are set from a gate: the debug entry imports a one-line `debugger;` module first, which runs only after the whole import graph is parsed, so every file's map is known and breakpoints are placed by script id before any user code runs. JavaScriptCore reports a module's own scope as empty, so the Module scope evaluates the file's top-level names (from the oxc AST) in the paused frame. Everything outside the workspace (host wrappers, packages) is blackboxed so Step Into skips it. The freeze watchdog is held while paused. A Node-based runner (CDP) was the alternative; it would mean a second runtime and different behaviour from live runs. | 2026-11-08 |
+| 26 | Debugger **Watch** evaluates in the paused frame with `Debugger.evaluateOnCallFrame`, and the list lives in **settings** | The same call the Module scope already uses, over the same inspector socket, so no new channel. Values are plain `DebugValue`s, so a watched object expands with the existing `debug.props`. JavaScriptCore throws a `ReferenceError` for names not in scope and for `let`/`const` not yet initialized; both show as "not available", other errors show their message. One list for all files (like VS Code), saved in `settings.json` and checked by `sanitize` (at most 50 expressions of 500 characters), so it survives restarts, unlike breakpoints so far. Evaluating has side effects by design; a read-only mode would need parsing the expression for assignments and calls. | 2026-11-08 |
+| 27 | Debugging lives in a **Debugger tab** beside Results and Bundle, not a toolbar button | The owner asked to see at a glance whether breakpoints are set and to start debugging from the same place. The tab badge shows the count, the tab lists and manages them, and a pause brings the tab to the front with call stack, Watch and variables, so the toolbar keeps only the live-run controls. Results stay one click away (the gutter still fills during a debug run). The breakpoint list is rebuilt from the Monaco decorations (`listBreakpoints`) on each toggle and edit instead of a parallel store, so it can never disagree with the editor. | 2026-11-08 |
 
 ## Electron on macOS and Windows
 
@@ -170,6 +183,23 @@ Always keep one fresh runner booted and idle. A run takes the spare at once, the
 ### Freeze watchdog (decision 11)
 - The runner sends a heartbeat on a timer. If none arrives for N seconds (Settings > Runtime, "Stop code that freezes for"), main kills it and promotes the spare.
 - Code that is only waiting (servers, `setInterval`, network) keeps running until the next edit replaces it or the user presses Stop (decision 17). The status bar shows "Running".
+- A debug run stopped at a breakpoint sends no heartbeats, so the debugger holds the watchdog while paused and restarts its clock on resume (decision 25).
+
+## Debug runs (decision 25)
+
+```
+Renderer ──debug:start(code, file, breakpoints)──▶ Main ──spawn──▶ bun --inspect=127.0.0.1:0/<token> host.ts
+                                                    │  ◀── stderr: ws:// URL
+                                                    ├── WebSocket: Debugger.enable, blackbox non-workspace URLs
+                                                    └── stdin: { run, entry: debug-N.ts }   (results stream as usual)
+debug-N.ts:  import "debug-gate.ts"   ← `debugger;` once the graph is parsed: set breakpoints, resume
+             import "run-N.ts"        ← the instrumented scratch
+```
+
+- `src/main/runner.ts` `debug()`: own process (not the spare), inspector banner kept out of the results, watchdog hold.
+- `src/main/debugger.ts` `DebugSession`: scripts and their source maps, breakpoints by script id, pause and step, scopes and properties as small `DebugValue`s for the renderer.
+- `src/main/inspector.ts`: JSON-RPC over WebSocket. `src/main/sourcemap.ts`: VLQ decode, generated ⇄ source lines.
+- Protocol notes from bun 1.4: `Debugger.setPauseOnDebuggerStatements` must be on for `debugger;` to stop; a step that pauses again sends no `Debugger.resumed`; Step Out resumes at the caller's next statement; `Runtime.getCollectionEntries` lists map and set entries.
 
 ## Run pipeline
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { instrument } from './instrument'
+import { instrument, topLevelNames } from './instrument'
 
 describe('instrument', () => {
   it('wraps top-level expressions and tags console calls, keeping line count', () => {
@@ -53,5 +53,25 @@ describe('instrument', () => {
     const r = instrument('const a = 1\nconst = 2')
     expect(r.ok).toBe(false)
     expect(!r.ok && r.line).toBe(2)
+  })
+
+  it('lists top-level runtime bindings for the debugger', () => {
+    const src = [
+      'import a, { b, type T } from "x"',
+      'import type { U } from "y"',
+      'const { c, d: [e, ...f], g = 1, ...h } = obj',
+      'let i = 1, j',
+      'function k() { const local = 1 }',
+      'export class L {}',
+      'export const m = 2',
+      'enum N { A }',
+      'declare const n: number',
+      'type V = number',
+      'interface W {}'
+    ].join('\n')
+    expect(topLevelNames(src, 'x.ts')).toEqual(['a', 'b', 'c', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'L', 'm', 'N'])
+    const r = instrument('const z = 1\nz')
+    expect(r.ok && r.names).toEqual(['z'])
+    expect(topLevelNames('const = 1', 'x.ts')).toEqual([])
   })
 })

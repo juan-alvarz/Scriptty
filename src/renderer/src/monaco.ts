@@ -139,6 +139,8 @@ export function createEditor(el: HTMLElement): monaco.editor.IStandaloneCodeEdit
     hideCursorInOverviewRuler: true,
     // Hover and suggest boxes escape the editor's overflow: hidden box (a hover on line 1 was cut off by the tab bar).
     fixedOverflowWidgets: true,
+    // Breakpoints: click left of the line numbers (see breakpoints.ts).
+    glyphMargin: true,
     scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 }
   })
   applyTheme()

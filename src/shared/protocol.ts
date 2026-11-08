@@ -13,8 +13,11 @@ export type RunnerEvent =
   | { type: 'done'; runId: number; ms: number; stopped?: boolean }
 
 export type ToRunner =
-  /** `dir` is the scratch's own folder: the run's working directory. */
-  | { type: 'run'; runId: number; file: string; dir: string }
+  /**
+   * `dir` is the scratch's own folder: the run's working directory. `entry`, for debug runs, is the module to
+   * import instead of `file` (a wrapper that pauses once the whole import graph is parsed).
+   */
+  | { type: 'run'; runId: number; file: string; dir: string; entry?: string }
   | { type: 'preload'; modules: string[]; cwd: string }
 
 export type FromRunner = RunnerEvent | { type: 'hb' }
@@ -40,6 +43,8 @@ export type Settings = {
   sidebarHidden: boolean
   sidebarWidth: number
   resultsWidth: number
+  /** Debugger Watch expressions, in order. */
+  watches: string[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -54,7 +59,8 @@ export const DEFAULT_SETTINGS: Settings = {
   openFiles: [],
   sidebarHidden: false,
   sidebarWidth: 220,
-  resultsWidth: 420
+  resultsWidth: 420,
+  watches: []
 }
 
 /** Paths are workspace-relative with forward slashes. */
@@ -62,8 +68,52 @@ export type TreeNode = { name: string; path: string; kind: 'file' | 'folder'; ch
 
 export type TreeAction = 'new-file' | 'new-folder' | 'rename' | 'trash' | 'reveal'
 
-export type MenuAction = 'settings' | 'new-file' | 'new-folder' | 'toggle-sidebar' | 'search' | 'close-tab' | 'next-tab' | 'prev-tab' | 'stop' | 'quick-open'
+export type MenuAction =
+  | 'settings'
+  | 'new-file'
+  | 'new-folder'
+  | 'toggle-sidebar'
+  | 'close-tab'
+  | 'next-tab'
+  | 'prev-tab'
+  | 'search'
+  | 'stop'
+  | 'quick-open'
+  | 'debug-start'
+  | 'debug-stop'
+  | 'debug-continue'
+  | 'debug-step-over'
+  | 'debug-step-into'
+  | 'debug-step-out'
+  | 'toggle-breakpoint'
 
+/** Breakpoints by workspace-relative path, as 1-based editor lines. */
+export type Breakpoints = Record<string, number[]>
+
+export type DebugCommand = 'continue' | 'stepOver' | 'stepInto' | 'stepOut'
+
+/**
+ * A value as the Debug panel shows it. Objects with an `objectId` expand with `debug.props`. A Watch expression
+ * that cannot be evaluated has type 'unavailable' (a name not in scope) or 'error' (it threw), with the message.
+ */
+export type DebugValue = { text: string; type: string; objectId?: string }
+
+/** Limits on Watch expressions, checked in settings and on the IPC call. */
+export const WATCH_LIMITS = { count: 50, length: 500 }
+
+export type DebugVar = { name: string; value: DebugValue }
+
+export type DebugScope = { name: string; vars: DebugVar[] }
+
+/** One call stack frame in a workspace file. `file` is workspace-relative; `line` is 1-based. */
+export type DebugFrame = { name: string; file: string; line: number }
+
+export type DebugEvent =
+  /** `reason`: 'breakpoint', 'debugger' (a `debugger;` statement), 'step', or 'pause' for anything else. */
+  | { type: 'paused'; runId: number; reason: string; frames: DebugFrame[] }
+  | { type: 'resumed'; runId: number }
+  /** The debug process is gone: stopped, replaced by a live run, crashed or killed by the freeze watchdog. */
+  | { type: 'ended'; runId: number }
 export type SearchOptions = { regex: boolean; caseSensitive: boolean; wholeWord: boolean }
 
 /** One hit. `line` and `col` are 1-based (Monaco positions); `preview` is the line trimmed around the match, which starts at `previewStart`. */
