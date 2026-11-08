@@ -152,6 +152,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('pkg:list', () => packages.list())
   ipcMain.handle('pkg:add', (_e, spec: string) => packages.add(spec))
+  ipcMain.handle('pkg:add-types', (_e, name: string) => packages.addTypes(name))
   ipcMain.handle('pkg:remove', (_e, name: string) => packages.remove(name))
   ipcMain.handle('pkg:types', () => packages.types(nodeTypes))
   ipcMain.handle('pkg:info', safe((name: string) => packages.info(name)))

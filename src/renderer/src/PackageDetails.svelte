@@ -1,8 +1,15 @@
 <script lang="ts">
   import type { PackageDetails } from '../../shared/protocol'
 
-  type Props = { name: string; oninsert: (line: string) => void; onremove: (name: string) => void; onclose: () => void }
-  let { name, oninsert, onremove, onclose }: Props = $props()
+  type Props = {
+    name: string
+    oninsert: (line: string) => void
+    onremove: (name: string) => void
+    /** Installs the package's @types; resolves true when it worked. */
+    oninstalltypes: (name: string) => Promise<boolean>
+    onclose: () => void
+  }
+  let { name, oninsert, onremove, oninstalltypes, onclose }: Props = $props()
 
   let dialog: HTMLDialogElement
   let info = $state<PackageDetails | null>(null)
@@ -14,8 +21,19 @@
     info = null
     error = ''
     if (!dialog.open) dialog.showModal()
-    window.scriptty.packages.info(name).then((r) => (r.ok ? (info = r.value) : (error = r.error)))
+    load(name)
   })
+
+  function load(n: string): void {
+    window.scriptty.packages.info(n).then((r) => (r.ok ? (info = r.value) : (error = r.error)))
+  }
+
+  let installing = $state(false)
+  async function installTypes(): Promise<void> {
+    installing = true
+    if (await oninstalltypes(name)) load(name)
+    installing = false
+  }
 
   async function copy(): Promise<void> {
     if (!info) return
@@ -46,16 +64,24 @@
       {:else}
         {#if info.description}<p class="desc">{info.description}</p>{/if}
 
+        {#if info.importLine}
         <div class="use">
           <code>{info.importLine}</code>
           <button class="btn" onclick={copy}>{copied ? 'Copied' : 'Copy'}</button>
           <button class="btn primary" onclick={() => (oninsert(info!.importLine), dialog.close())}>Add to file</button>
         </div>
+        {/if}
 
         <dl>
           <dt>Version</dt><dd>{info.version}</dd>
           <dt>License</dt><dd>{info.license || '—'}</dd>
-          <dt>Types</dt><dd>{typesLabel[info.types]}</dd>
+          <dt>Types</dt>
+          <dd>
+            {typesLabel[info.types]}
+            {#if info.types === 'none'}
+              <button class="link" onclick={installTypes} disabled={installing}>{installing ? 'Installing…' : 'Install types'}</button>
+            {/if}
+          </dd>
           <dt>Links</dt>
           <dd class="links">
             <button class="link" onclick={() => window.scriptty.openExternal(info!.npm)}>npm</button>

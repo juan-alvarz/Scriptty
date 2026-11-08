@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { PackageDetails, PackageInfo, Result, TypeLib } from '../shared/protocol'
+import type { Added, PackageDetails, PackageInfo, PackageList, Result, TypeLib } from '../shared/protocol'
 import { exec } from './exec'
 
 // npm package name with an optional @version or @tag. Rejects anything that could be read as a CLI flag.
@@ -29,6 +29,16 @@ const nameOf = (spec: string): string => spec.replace(/(.)@.*$/, '$1')
 /** The DefinitelyTyped package for `name`: `@types/lodash`, `@types/scope__x`. */
 const typesPackageOf = (name: string): string => `@types/${name.replace(/^@([^/]+)\//, '$1__')}`
 
+/** Whether npm has this package. Offline counts as yes: the install then reports the real error. */
+async function published(name: string): Promise<boolean> {
+  try {
+    const r = await fetch(`https://registry.npmjs.org/${name.replace('/', '%2f')}`, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
+    return r.status !== 404
+  } catch {
+    return true
+  }
+}
+
 /** Absolute path of the declaration file a package folder points to, if it has one. */
 function typesEntryIn(dir: string): string | undefined {
   try {
@@ -47,20 +57,31 @@ export class Packages {
     private cacheDir: string
   ) {}
 
-  list(): PackageInfo[] {
-    const deps = this.manifest().dependencies ?? {}
-    return Object.keys(deps)
-      .sort()
-      .map((name) => ({ name, version: this.installedVersion(name) ?? deps[name] }))
+  list(): PackageList {
+    const m = this.manifest()
+    const infos = (deps: Record<string, string>): PackageInfo[] =>
+      Object.keys(deps)
+        .sort()
+        .map((name) => ({ name, version: this.installedVersion(name) ?? deps[name] }))
+    const typeLibraries = Object.fromEntries(Object.entries(m.devDependencies ?? {}).filter(([name]) => name.startsWith('@types/')))
+    return { packages: infos(m.dependencies ?? {}), typeLibraries: infos(typeLibraries) }
   }
 
-  async add(spec: string): Promise<Result> {
+  /** Installs a package. For one without types, says which @types package exists, so the UI can offer it. */
+  async add(spec: string): Promise<Result<Added>> {
     if (!isValidSpec(spec)) return { ok: false, error: `"${spec}" is not a valid package name` }
     const r = await this.bunCmd(['add', spec])
-    // Untyped package: try DefinitelyTyped so the editor can autocomplete it. Best effort, many have none.
-    // A dev dependency, so it stays out of the package list.
-    if (r.ok && this.typesOf(nameOf(spec)).kind === 'none') await this.bunCmd(['add', '--dev', typesPackageOf(nameOf(spec))])
-    return r
+    if (!r.ok) return r
+    const name = nameOf(spec)
+    const typesPackage = typesPackageOf(name)
+    const offer = this.typesOf(name).kind === 'none' && (await published(typesPackage))
+    return { ok: true, value: { name, typesPackage: offer ? typesPackage : null } }
+  }
+
+  /** Installs DefinitelyTyped declarations for an installed package. A dev dependency, so it lists apart. */
+  addTypes(name: string): Promise<Result> {
+    if (!isValidSpec(name) || !(name in (this.manifest().dependencies ?? {}))) return Promise.resolve({ ok: false, error: `${name} is not installed` })
+    return this.bunCmd(['add', '--dev', typesPackageOf(name)])
   }
 
   async remove(name: string): Promise<Result> {
@@ -81,14 +102,20 @@ export class Packages {
 
   /** What the package panel shows when a package is clicked. Reads only files inside node_modules/<name>. */
   info(name: string): PackageDetails {
-    if (!isValidSpec(name) || !(name in (this.manifest().dependencies ?? {}))) throw new Error(`${name} is not installed`)
+    const m = this.manifest()
+    if (!isValidSpec(name) || !(name in { ...m.dependencies, ...m.devDependencies })) throw new Error(`${name} is not installed`)
     const dir = join(this.dir, 'node_modules', name)
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     const { kind: types, entry: typesEntry } = this.typesOf(name)
     const typesText = typesEntry ? readFileSync(typesEntry, 'utf8') : ''
     const id = identifierFor(name)
     // Default import when the types say there is one (or for untyped CJS, which bun default-imports fine).
-    const importLine = /export\s+default|export\s*=/.test(typesText) || types === 'none' ? `import ${id} from "${name}"` : `import * as ${id} from "${name}"`
+    // Type libraries are never imported by name: TypeScript picks them up for their package.
+    const importLine = name.startsWith('@types/')
+      ? ''
+      : /export\s+default|export\s*=/.test(typesText) || types === 'none'
+        ? `import ${id} from "${name}"`
+        : `import * as ${id} from "${name}"`
     const readmeFile = readdirSync(dir).find((f) => /^readme(\.md|\.markdown|\.txt)?$/i.test(f))
     const readme = readmeFile ? readFileSync(join(dir, readmeFile), 'utf8').slice(0, 200_000) : ''
     return {

@@ -56,7 +56,11 @@ describe('package types', () => {
     const p = new Packages(dir, 'bun', dir)
     expect([p.info('typed').types, p.info('lodash').types, p.info('bare').types]).toEqual(['bundled', '@types', 'none'])
     expect(p.info('lodash').importLine).toBe('import lodash from "lodash"')
-    expect(p.list().map((x) => x.name)).toEqual(['bare', 'lodash', 'typed'])
+    expect(p.list()).toEqual({
+      packages: ['bare', 'lodash', 'typed'].map((name) => ({ name, version: '1.0.0' })),
+      typeLibraries: [{ name: '@types/lodash', version: '1.0.0' }]
+    })
+    expect([p.info('@types/lodash').types, p.info('@types/lodash').importLine]).toEqual(['bundled', ''])
     const stub = p.types(null).find((l) => l.path.endsWith('untyped.d.ts'))
     expect(stub?.content).toBe('declare module "bare";')
   })
