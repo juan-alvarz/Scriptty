@@ -212,6 +212,46 @@ describe('debugger', () => {
     await d.next('done')
   })
 
+  it('evaluates watch expressions in the paused frame, and marks names out of scope', async () => {
+    const d = await debug(CODE, { 'main.ts': [5] })
+    await d.next('paused')
+    const watches = ['a + b', 'obj.tags', 'sum', 'nope', '(() => { throw new Error("boom") })()', 'total']
+    const texts = async (frame: number): Promise<string[]> => (await d.s.evaluate(frame, watches)).map((v) => `${v.type} ${v.text}`)
+    // `sum` and `total` are declared but not yet initialized here, so they read as not available too.
+    expect(await texts(0)).toEqual([
+      'number 5',
+      'array ["x", "y"]',
+      'unavailable not available',
+      'unavailable not available',
+      'error Error: boom',
+      'unavailable not available'
+    ])
+    const [, tags] = await d.s.evaluate(0, watches)
+    expect((await d.s.props(tags.objectId!, tags.type)).map((v) => v.value.text)).toEqual(['"x"', '"y"'])
+    // The caller's frame has no `a` or `b`.
+    expect((await texts(1))[0]).toBe('unavailable not available')
+
+    // Values follow the run: after a step, `sum` has a value; after Step Out, the locals are gone.
+    await d.s.command('stepOver')
+    await d.next('paused')
+    expect((await texts(0))[2]).toBe('number 5')
+    await d.s.command('stepOut')
+    await d.next('paused')
+    expect(await texts(0)).toEqual([
+      'unavailable not available',
+      'array ["x", "y"]',
+      'unavailable not available',
+      'unavailable not available',
+      'error Error: boom',
+      'number 5'
+    ])
+    // A frame index from no pause at all (not paused, or a stale frame) is not available either.
+    expect((await d.s.evaluate(5, ['1']))[0].type).toBe('unavailable')
+    await d.s.command('continue')
+    await d.next('done')
+    expect(d.results).toEqual(['10 log total 5', '11 value 10'])
+  })
+
   it('ends when the run is stopped', async () => {
     const d = await debug('debugger\n1', {})
     await d.next('paused')

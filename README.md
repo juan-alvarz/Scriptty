@@ -6,6 +6,8 @@ A desktop scratchpad for TypeScript and JavaScript. It runs your code as you typ
 
 - **Live results**: every line's value, `console.log` output and errors show in the results gutter as you type. Click a result for the full, pretty-printed output.
 - **Stop**: end a run that keeps going (servers, intervals) with Run > Stop, the toolbar's Stop button, or ⌘. / Ctrl+.
+- **Debugger**: Debug (F5) runs the current file with the debugger attached. Click the editor's left margin (or press F9) to set a breakpoint; the run stops there or at a `debugger;` statement. The Debug panel shows the call stack and variables (Local, Closure, Module) with expandable objects, and has Continue, Step Over, Step Into, Step Out and Stop. Live as-you-type runs never stop at breakpoints.
+  - **Watch**: type an expression under Watch and press Enter. It is re-evaluated in the selected frame on every pause and step; names out of scope show "not available". Double-click an entry to edit it, × to remove it. The list is saved in settings. Watch expressions really run, so avoid ones that change state (`n++`).
 - **Runtime error markers**: thrown errors and rejections get a red squiggle on their line, with the error and stack in the hover.
 - **Scratches are plain files** in `~/Documents/Scriptty`, with folders, a file tree, tabs (restored on launch) and autosave.
 - **Quick open**: ⌘P / Ctrl+P opens a fuzzy file switcher over every scratch. ⌘P Enter switches back to the previous file.
@@ -26,6 +28,10 @@ A desktop scratchpad for TypeScript and JavaScript. It runs your code as you typ
 | Stop | ⌘. | Ctrl+. |
 | Quick open | ⌘P | Ctrl+P |
 | Search scratches | ⇧⌘F | Ctrl+Shift+F |
+| Debug / continue | F5 | F5 |
+| Stop debugging | ⇧F5 | Shift+F5 |
+| Toggle breakpoint | F9 | F9 |
+| Step over / into / out | F10 / F11 / ⇧F11 | F10 / F11 / Shift+F11 |
 | Toggle sidebar | ⌘B | Ctrl+B |
 | Close tab | ⌘W | Ctrl+W |
 | Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab | Ctrl+Tab / Ctrl+Shift+Tab |
@@ -38,7 +44,7 @@ Needs Node and pnpm. bun is bundled; `pnpm install` fetches it.
 ```bash
 pnpm install
 pnpm dev          # run with hot reload
-pnpm test         # instrumentation, runner and workspace tests
+pnpm test         # instrumentation, runner, debugger and workspace tests
 pnpm typecheck    # main/preload with tsc, renderer with svelte-check
 pnpm dist:mac     # package for macOS (run on macOS)
 pnpm dist:win     # package for Windows (run on Windows)

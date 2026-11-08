@@ -651,6 +651,8 @@
             oncommand={debugCommand}
             onstop={stopDebug}
             onselect={showFrame}
+            watches={settings.watches}
+            onwatches={async (w) => (settings = await api.settings.set({ watches: w }))}
           />
         {/if}
       </div>

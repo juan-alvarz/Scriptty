@@ -179,6 +179,35 @@ export class DebugSession {
     return out
   }
 
+  /**
+   * Watch: evaluates each expression in a frame of the current pause. A name that is not in scope comes back
+   * as 'unavailable', any other thrown error as 'error'. Expressions run for real, so `n++` changes `n`.
+   */
+  async evaluate(index: number, expressions: string[]): Promise<DebugValue[]> {
+    const f = this.frames[index]
+    const out: DebugValue[] = []
+    for (const expression of expressions) {
+      if (!f) {
+        out.push({ text: 'not available', type: 'unavailable' })
+        continue
+      }
+      try {
+        const r = await this.ins.call<{ result: RemoteObject; wasThrown?: boolean }>('Debugger.evaluateOnCallFrame', {
+          callFrameId: f.callFrameId,
+          expression,
+          objectGroup: GROUP,
+          doNotPauseOnExceptionsAndMuteConsole: true,
+          generatePreview: true,
+          returnByValue: false
+        })
+        out.push(r.wasThrown ? thrown(r.result) : describe(r.result))
+      } catch (e) {
+        out.push({ text: e instanceof Error ? e.message : String(e), type: 'error' })
+      }
+    }
+    return out
+  }
+
   /** Children of an expandable value. `type` is the DebugValue's type (maps and sets list their entries). */
   async props(objectId: string, type = 'object'): Promise<DebugVar[]> {
     const vars: DebugVar[] = []
@@ -308,6 +337,12 @@ export class DebugSession {
 }
 
 const where = (sc?: Scope): string => (sc?.location ? `${sc.location.scriptId}:${sc.location.lineNumber}:${sc.location.columnNumber}` : '')
+
+/** A Watch expression that threw. ReferenceError means its names are not in this frame's scope. */
+function thrown(o: RemoteObject): DebugValue {
+  const msg = o.description ?? (typeof o.value === 'string' ? o.value : 'Error')
+  return o.className === 'ReferenceError' || msg.startsWith('ReferenceError') ? { text: 'not available', type: 'unavailable' } : { text: msg, type: 'error' }
+}
 
 /** One-line text for a protocol value, close to the results gutter's style. */
 export function describe(o: RemoteObject): DebugValue {

@@ -7,7 +7,7 @@ import { Runner, type DebugRun } from './runner'
 import { DebugSession } from './debugger'
 import { Workspace } from './workspace'
 import { Packages } from './packages'
-import { loadSettings, sanitize, saveSettings } from './settings'
+import { loadSettings, sanitize, saveSettings, watchList } from './settings'
 import { appMenu, treeMenu } from './menu'
 import { bundle } from './bundle'
 import { installedIn, missingPackages } from './missing'
@@ -219,6 +219,7 @@ app.whenReady().then(async () => {
     typeof rel === 'string' ? dbg?.session?.setBreakpoints(rel, lines(ls)).catch(() => {}) : undefined
   )
   ipcMain.handle('debug:scopes', safe((i: number) => dbg?.session?.scopes(Number(i)) ?? []))
+  ipcMain.handle('debug:watch', safe((i: number, exprs: unknown) => dbg?.session?.evaluate(Number(i), watchList(exprs) ?? []) ?? []))
   ipcMain.handle('debug:props', safe((objectId: string, type: string) => dbg?.session?.props(String(objectId), String(type)) ?? []))
   ipcMain.handle('stop', () => runner?.stop() ?? false)
 

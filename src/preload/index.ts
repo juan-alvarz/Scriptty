@@ -6,6 +6,7 @@ import type {
   DebugCommand,
   DebugEvent,
   DebugScope,
+  DebugValue,
   DebugVar,
   MenuAction,
   PackageList,
@@ -43,6 +44,8 @@ const api = {
     stop: (): Promise<void> => ipcRenderer.invoke('debug:stop'),
     setBreakpoints: (file: string, lines: number[]): Promise<void> => ipcRenderer.invoke('debug:breakpoints', file, lines),
     scopes: (frame: number): Promise<Result<DebugScope[]>> => ipcRenderer.invoke('debug:scopes', frame),
+    /** Watch: evaluates expressions in a frame of the current pause, one value per expression. */
+    watch: (frame: number, expressions: string[]): Promise<Result<DebugValue[]>> => ipcRenderer.invoke('debug:watch', frame, expressions),
     props: (objectId: string, type: string): Promise<Result<DebugVar[]>> => ipcRenderer.invoke('debug:props', objectId, type),
     onEvent: (cb: (e: DebugEvent) => void) => listen('debug:event', cb)
   },

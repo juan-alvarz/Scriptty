@@ -1,10 +1,12 @@
 <script lang="ts" module>
-  import type { DebugCommand, DebugFrame, DebugScope, DebugVar } from '../../shared/protocol'
+  import type { DebugCommand, DebugFrame, DebugScope, DebugValue, DebugVar } from '../../shared/protocol'
 
   export type Paused = { reason: string; frames: DebugFrame[] }
 </script>
 
 <script lang="ts">
+  import { untrack } from 'svelte'
+
   type Props = {
     /** Null while the debug run is running. */
     paused: Paused | null
@@ -14,8 +16,11 @@
     oncommand: (c: DebugCommand) => void
     onstop: () => void
     onselect: (frame: number) => void
+    /** Watch expressions, kept in settings. */
+    watches: string[]
+    onwatches: (watches: string[]) => void
   }
-  let { paused, finished, frame, oncommand, onstop, onselect }: Props = $props()
+  let { paused, finished, frame, oncommand, onstop, onselect, watches, onwatches }: Props = $props()
 
   const api = window.scriptty
   let scopes = $state<DebugScope[]>([])
@@ -41,6 +46,73 @@
     })
   })
 
+  // Watch values follow every pause, frame pick and list change; expanded watch values are reloaded too.
+  let watchVals = $state<DebugValue[]>([])
+  let wseq = 0
+  $effect(() => {
+    const p = paused
+    const f = frame
+    const list = [...watches]
+    const mine = ++wseq
+    untrack(() => (open = Object.fromEntries(Object.entries(open).filter(([k]) => !k.startsWith('w')))))
+    if (!p || !list.length) {
+      watchVals = []
+      return
+    }
+    api.debug.watch(f, list).then((r) => {
+      if (mine !== wseq) return
+      watchVals = r.ok ? r.value : list.map(() => ({ text: r.error, type: 'error' }))
+    })
+  })
+
+  /** Index of the watch being edited, or -1. */
+  let editing = $state(-1)
+  let draft = $state('')
+
+  function startEdit(i: number): void {
+    editing = i
+    draft = watches[i]
+  }
+
+  /** Saves the draft over watch `i`, or appends it when `i` is the list's length; an empty draft removes. */
+  function commit(i: number, text: string): void {
+    const w = text.trim()
+    const next = [...watches]
+    if (i >= next.length) {
+      if (w) onwatches([...next, w])
+    } else if (!w) onwatches(next.filter((_, j) => j !== i))
+    else if (w !== next[i]) onwatches(next.with(i, w))
+  }
+
+  function onEditKey(e: KeyboardEvent, i: number): void {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const text = draft
+      editing = -1
+      commit(i, text)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      editing = -1
+    }
+  }
+
+  function onAddKey(e: KeyboardEvent): void {
+    const el = e.currentTarget as HTMLInputElement
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commit(watches.length, el.value)
+      el.value = ''
+    } else if (e.key === 'Escape') {
+      el.value = ''
+      el.blur()
+    }
+  }
+
+  const focus = (el: HTMLInputElement): void => {
+    el.focus()
+    el.select()
+  }
+
   async function toggle(path: string, v: DebugVar): Promise<void> {
     if (path in open) {
       const { [path]: _, ...rest } = open
@@ -64,10 +136,20 @@
   ]
 </script>
 
+{#snippet children(path: string, depth: number)}
+  {@const kids = open[path]}
+  {#if kids === null}
+    <p class="muted note" style="padding-left: {30 + depth * 14}px">Loading…</p>
+  {:else if kids && kids.length}
+    <ul>{@render tree(kids, path, depth + 1)}</ul>
+  {:else}
+    <p class="muted note" style="padding-left: {30 + depth * 14}px">No properties</p>
+  {/if}
+{/snippet}
+
 {#snippet tree(vars: DebugVar[], base: string, depth: number)}
   {#each vars as v, i (base + '/' + i)}
     {@const path = base + '/' + i}
-    {@const kids = open[path]}
     <li>
       <button
         class="var"
@@ -80,15 +162,7 @@
         <span class="name">{v.name}</span><span class="colon">:</span>
         <span class="val {v.value.type}" title={v.value.text}>{v.value.text}</span>
       </button>
-      {#if path in open}
-        {#if kids === null}
-          <p class="muted note" style="padding-left: {30 + depth * 14}px">Loading…</p>
-        {:else if kids && kids.length}
-          <ul>{@render tree(kids, path, depth + 1)}</ul>
-        {:else}
-          <p class="muted note" style="padding-left: {30 + depth * 14}px">No properties</p>
-        {/if}
-      {/if}
+      {#if path in open}{@render children(path, depth)}{/if}
     </li>
   {/each}
 {/snippet}
@@ -131,6 +205,49 @@
         </ul>
       </div>
       <div class="vars">
+        <h5>Watch</h5>
+        <ul class="watch">
+          {#each watches as w, i (i)}
+            {@const v = watchVals[i]}
+            {@const path = `w${i}`}
+            <li>
+              {#if editing === i}
+                <input
+                  class="wedit"
+                  aria-label="Edit watch expression"
+                  spellcheck="false"
+                  bind:value={draft}
+                  use:focus
+                  onkeydown={(e) => onEditKey(e, i)}
+                  onblur={() => editing === i && ((editing = -1), commit(i, draft))}
+                />
+              {:else}
+                <div class="wrow">
+                  <button
+                    class="var"
+                    class:leaf={!v?.objectId}
+                    title="Double-click to edit"
+                    aria-expanded={v?.objectId ? path in open : undefined}
+                    onclick={() => v && toggle(path, { name: w, value: v })}
+                    ondblclick={() => startEdit(i)}
+                  >
+                    <span class="caret" aria-hidden="true">{v?.objectId ? (path in open ? '▾' : '▸') : ''}</span>
+                    <span class="name">{w}</span><span class="colon">:</span>
+                    <span class="val {v?.type ?? 'unavailable'}" title={v?.text}>{v?.text ?? '…'}</span>
+                  </button>
+                  <button class="wbtn" title="Edit" aria-label="Edit {w}" onclick={() => startEdit(i)}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" /></svg>
+                  </button>
+                  <button class="wbtn" title="Remove" aria-label="Remove {w}" onclick={() => commit(i, '')}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                  </button>
+                </div>
+                {#if path in open}{@render children(path, 0)}{/if}
+              {/if}
+            </li>
+          {/each}
+          <li><input class="wadd" placeholder="Add expression…" aria-label="Add watch expression" spellcheck="false" onkeydown={onAddKey} /></li>
+        </ul>
         {#if error}<p class="muted note">{error}</p>{/if}
         {#each scopes as s, si (si)}
           <h5>{s.name}</h5>
@@ -299,6 +416,75 @@
   }
   .val.undefined,
   .val.accessor {
+    color: var(--muted);
+  }
+  .val.unavailable {
+    color: var(--muted);
+    font-style: italic;
+  }
+  .val.error {
+    color: var(--err);
+  }
+  .watch {
+    margin-bottom: 6px;
+  }
+  .wrow {
+    display: flex;
+    align-items: center;
+  }
+  .wrow .var {
+    flex: 1;
+    min-width: 0;
+  }
+  .wbtn {
+    flex: none;
+    width: 20px;
+    height: 18px;
+    display: grid;
+    opacity: 0;
+    place-items: center;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .wrow:hover .wbtn,
+  .wrow:focus-within .wbtn {
+    opacity: 1;
+  }
+  .wbtn:hover {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--fg) 9%, transparent);
+  }
+  .wbtn svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .wadd,
+  .wedit {
+    display: block;
+    width: calc(100% - 20px);
+    margin: 2px 10px;
+    padding: 2px 6px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: none;
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 11.5px;
+  }
+  .wedit,
+  .wadd:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+  .wadd::placeholder {
     color: var(--muted);
   }
   .note {

@@ -43,6 +43,8 @@ export type Settings = {
   sidebarHidden: boolean
   sidebarWidth: number
   resultsWidth: number
+  /** Debugger Watch expressions, in order. */
+  watches: string[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -57,7 +59,8 @@ export const DEFAULT_SETTINGS: Settings = {
   openFiles: [],
   sidebarHidden: false,
   sidebarWidth: 220,
-  resultsWidth: 420
+  resultsWidth: 420,
+  watches: []
 }
 
 /** Paths are workspace-relative with forward slashes. */
@@ -89,8 +92,14 @@ export type Breakpoints = Record<string, number[]>
 
 export type DebugCommand = 'continue' | 'stepOver' | 'stepInto' | 'stepOut'
 
-/** A value as the Debug panel shows it. Objects with an `objectId` expand with `debug.props`. */
+/**
+ * A value as the Debug panel shows it. Objects with an `objectId` expand with `debug.props`. A Watch expression
+ * that cannot be evaluated has type 'unavailable' (a name not in scope) or 'error' (it threw), with the message.
+ */
 export type DebugValue = { text: string; type: string; objectId?: string }
+
+/** Limits on Watch expressions, checked in settings and on the IPC call. */
+export const WATCH_LIMITS = { count: 50, length: 500 }
 
 export type DebugVar = { name: string; value: DebugValue }
 
