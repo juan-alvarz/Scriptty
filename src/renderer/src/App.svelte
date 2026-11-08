@@ -9,6 +9,7 @@
   import BundlePanel from './BundlePanel.svelte'
   import StatusBar from './StatusBar.svelte'
   import SettingsDialog from './Settings.svelte'
+  import QuickOpen from './QuickOpen.svelte'
   import { DEFAULT_SETTINGS, WIDTH_LIMITS, type RunnerEvent, type Settings, type TreeNode } from '../../shared/protocol'
 
   const api = window.scriptty
@@ -30,6 +31,7 @@
   let renaming = $state('')
   let collapsed = $state<Record<string, boolean>>({})
   let settingsOpen = $state(false)
+  let quickOpen = $state(false)
   let notice = $state('')
   let view = $state<'results' | 'bundle'>('results')
   let tabs = $state<string[]>([])
@@ -314,6 +316,7 @@
     const off = api.onEvent(onRunnerEvent)
     const offMenu = api.onMenu((a) => {
       if (a === 'settings') settingsOpen = true
+      else if (a === 'quick-open') quickOpen = true
       else if (a === 'toggle-sidebar') toggleSidebar()
       else if (a === 'close-tab') current && closeTab(current)
       else if (a === 'next-tab') cycleTab(1)
@@ -440,6 +443,7 @@
 </div>
 
 <SettingsDialog open={settingsOpen} {settings} {root} onchange={change} onclose={() => ((settingsOpen = false), editor?.focus())} />
+<QuickOpen bind:open={quickOpen} {tree} {current} {tabs} onopen={open} />
 
 <style>
   .window {
