@@ -9,6 +9,7 @@ import { Packages } from './packages'
 import { loadSettings, sanitize, saveSettings } from './settings'
 import { appMenu, treeMenu } from './menu'
 import { bundle } from './bundle'
+import { installedIn, missingPackages } from './missing'
 import { SAMPLE } from '../shared/sample'
 import type { BundleOptions, MenuAction, Result, RunResponse, Settings } from '../shared/protocol'
 
@@ -110,6 +111,7 @@ app.whenReady().then(async () => {
 
   let seq = 0
   let lastFile = ''
+  const isInstalled = installedIn(join(dir, 'node_modules'))
   ipcMain.handle('run', async (_e, code: string, rel: string): Promise<RunResponse> => {
     try {
       const ext = extname(rel) || '.ts'
@@ -123,7 +125,7 @@ app.whenReady().then(async () => {
       runner!.run(runId, file, r.imports, dir)
       if (lastFile) rm(lastFile, { force: true }).catch(() => {})
       lastFile = file
-      return { ok: true, runId }
+      return { ok: true, runId, missing: missingPackages(r.imports, isInstalled) }
     } catch (e) {
       // A bad path or a failed write: report it in the status bar instead of rejecting the invoke.
       return { ok: false, error: e instanceof Error ? e.message : String(e), line: 0 }

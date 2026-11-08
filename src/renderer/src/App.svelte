@@ -9,6 +9,8 @@
   import BundlePanel from './BundlePanel.svelte'
   import StatusBar from './StatusBar.svelte'
   import SettingsDialog from './Settings.svelte'
+  import MissingBanner from './MissingBanner.svelte'
+  import { registerMissingQuickFix, setMissing } from './missing'
   import { DEFAULT_SETTINGS, WIDTH_LIMITS, type RunnerEvent, type Settings, type TreeNode } from '../../shared/protocol'
 
   const api = window.scriptty
@@ -18,6 +20,7 @@
   let bodyEl: HTMLDivElement
   let resultsPanel: ReturnType<typeof ResultsPanel>
   let bundlePanel: ReturnType<typeof BundlePanel>
+  let missingBanner: ReturnType<typeof MissingBanner>
   let vimEl = $state<HTMLSpanElement>()
   // Raw: Monaco objects must not be wrapped in a Svelte proxy.
   let editor = $state.raw<monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -34,6 +37,8 @@
   let view = $state<'results' | 'bundle'>('results')
   let tabs = $state<string[]>([])
   let ready = $state(false)
+  // Packages the current file imports that are not installed (from the last run).
+  let missing = $state<string[]>([])
   // Cursor, selection and scroll per open file, restored when its tab comes back.
   const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>()
   // Live pane widths while dragging; saved to settings when the drag ends.
@@ -64,6 +69,7 @@
       status = { mode: 'paused', info: `Line ${r.line}: ${r.error}` }
       return
     }
+    if (r.runId >= currentRun) setMissing((missing = r.missing))
     if (startRun(r.runId)) status = { mode: 'running', info: status.info }
   }
 
@@ -71,6 +77,12 @@
   function stop(): void {
     clearTimeout(runTimer)
     api.stop()
+  }
+
+  // After packages change (banner, quick fix or Packages panel): new editor types, and run again.
+  async function packagesChanged(): Promise<void> {
+    setTypeLibs(await api.packages.types())
+    runNow()
   }
 
   function onRunnerEvent(e: RunnerEvent): void {
@@ -175,6 +187,7 @@
     editor?.setModel(null)
     bundlePanel.clear()
     current = ''
+    setMissing((missing = []))
     resultsPanel.reset()
     status = { mode: 'live', info: '' }
   }
@@ -322,6 +335,7 @@
     editor = ed
 
     const off = api.onEvent(onRunnerEvent)
+    const offFix = registerMissingQuickFix(monaco, (names) => missingBanner.install(names))
     const offMenu = api.onMenu((a) => {
       if (a === 'settings') settingsOpen = true
       else if (a === 'toggle-sidebar') toggleSidebar()
@@ -365,6 +379,7 @@
     return () => {
       off()
       offMenu()
+      offFix.dispose()
       ed.dispose()
     }
   })
@@ -387,7 +402,7 @@
       onrename={rename}
       oncancel={() => (renaming = '')}
       ondismiss={() => (notice = '')}
-      onpackageschange={async () => setTypeLibs(await api.packages.types())}
+      onpackageschange={packagesChanged}
       oninsert={insertImport}
     />
   {/if}
@@ -416,6 +431,8 @@
       onstop={stop}
       onsettings={() => (settingsOpen = true)}
     />
+
+    <MissingBanner bind:this={missingBanner} file={current} {missing} onadded={packagesChanged} />
 
     <div class="body" bind:this={bodyEl} style="grid-template-columns: minmax(0, 1fr) min({resW}px, calc(100% - 240px))">
       <div class="col">
