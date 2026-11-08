@@ -1,4 +1,5 @@
 <script lang="ts" module>
+  import type { ActionId } from '../../shared/keybindings'
   import type { DebugCommand, DebugFrame, DebugScope, DebugValue, DebugVar } from '../../shared/protocol'
 
   export type Paused = { reason: string; frames: DebugFrame[] }
@@ -7,6 +8,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import type { BreakpointItem } from './breakpoints'
+  import { shortcut, withKey } from './keys.svelte'
 
   type Props = {
     /** The Debugger tab is not the one shown. */
@@ -139,12 +141,28 @@
 
   const REASON: Record<string, string> = { breakpoint: 'Paused on breakpoint', debugger: 'Paused on debugger statement', step: 'Paused', pause: 'Paused' }
   const top = $derived(paused?.frames[0])
-  const controls: { c: DebugCommand; label: string; key: string; icon: string }[] = [
-    { c: 'continue', label: 'Continue', key: 'F8', icon: 'M7 5v14M11 5l9 7-9 7z' },
-    { c: 'stepOver', label: 'Step Over', key: 'F10', icon: 'M4 13a8 8 0 0 1 15-3M19 4v6h-6M12 19.5h.01' },
-    { c: 'stepInto', label: 'Step Into', key: 'F11', icon: 'M12 3v11M7 9l5 5 5-5M12 20h.01' },
-    { c: 'stepOut', label: 'Step Out', key: '⇧F11', icon: 'M12 15V4M7 9l5-5 5 5M12 20h.01' }
+  const controls: { c: DebugCommand; label: string; action: ActionId; icon: string }[] = [
+    { c: 'continue', label: 'Continue', action: 'debug-continue', icon: 'M7 5v14M11 5l9 7-9 7z' },
+    { c: 'stepOver', label: 'Step Over', action: 'debug-step-over', icon: 'M4 13a8 8 0 0 1 15-3M19 4v6h-6M12 19.5h.01' },
+    { c: 'stepInto', label: 'Step Into', action: 'debug-step-into', icon: 'M12 3v11M7 9l5 5 5-5M12 20h.01' },
+    { c: 'stepOut', label: 'Step Out', action: 'debug-step-out', icon: 'M12 15V4M7 9l5-5 5 5M12 20h.01' }
   ]
+  /** Current shortcuts for the hint line; unbound actions are left out. */
+  const hint = $derived(
+    (
+      [
+        ['debug-continue', 'continue'],
+        ['debug-step-over', 'over'],
+        ['debug-step-into', 'into'],
+        ['debug-step-out', 'out'],
+        ['debug-stop', 'stop'],
+        ['toggle-breakpoint', 'breakpoint']
+      ] as const
+    )
+      .filter(([id]) => shortcut(id))
+      .map(([id, what]) => `${shortcut(id)} ${what}`)
+      .join(' · ')
+  )
 </script>
 
 {#snippet children(path: string, depth: number)}
@@ -195,17 +213,17 @@
     <span class="sp"></span>
     {#if active}
       {#each controls as k (k.c)}
-        <button class="ctl" title="{k.label} ({k.key})" aria-label={k.label} disabled={!paused} onclick={() => oncommand(k.c)}>
+        <button class="ctl" title={withKey(k.label, k.action)} aria-label={k.label} disabled={!paused} onclick={() => oncommand(k.c)}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d={k.icon} /></svg>
         </button>
       {/each}
-      <button class="ctl stop" title="Stop (⇧F5)" aria-label="Stop debugging" onclick={onstop}>
+      <button class="ctl stop" title={withKey('Stop', 'debug-stop')} aria-label="Stop debugging" onclick={onstop}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5" /></svg>
       </button>
     {:else}
-      <button class="start" title="Run the current file with the debugger: it stops at breakpoints (F5)" onclick={onstart}>
+      <button class="start" title={withKey('Run the current file with the debugger: it stops at breakpoints', 'debug-start')} onclick={onstart}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z" /></svg>
-        Start debugging <span class="key">F5</span>
+        Start debugging {#if shortcut('debug-start')}<span class="key">{shortcut('debug-start')}</span>{/if}
       </button>
     {/if}
   </header>
@@ -301,11 +319,11 @@
           {/each}
         </ul>
       {:else}
-        <p class="muted note">No breakpoints. Click left of a line number or press F9 to add one. Debug runs stop there; live runs ignore them.</p>
+        <p class="muted note">No breakpoints. Click left of a line number{shortcut('toggle-breakpoint') ? ` or press ${shortcut('toggle-breakpoint')}` : ''} to add one. Debug runs stop there; live runs ignore them.</p>
       {/if}
     </div>
   </div>
-  {#if active}<p class="hint muted">F5 or F8 continue · F10 over · F11 into · ⇧F11 out · ⇧F5 stop · F9 breakpoint</p>{/if}
+  {#if active && hint}<p class="hint muted">{hint}</p>{/if}
 </section>
 
 <style>

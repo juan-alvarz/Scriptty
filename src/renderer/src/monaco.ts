@@ -247,14 +247,24 @@ export async function colorizeCode(root: HTMLElement): Promise<void> {
   }
 }
 
-let vim: VimAdapterInstance | null = null
+// Vim mode per editor (one per split). Each writes its mode into its own span inside the status bar's slot.
+const vims = new Map<monaco.editor.IStandaloneCodeEditor, { vim: VimAdapterInstance; el: HTMLElement }>()
 export function setVim(editor: monaco.editor.IStandaloneCodeEditor, on: boolean, status: HTMLElement): void {
-  if (on && !vim) vim = initVimMode(editor, status)
-  if (!on && vim) {
-    vim.dispose()
-    vim = null
-    status.textContent = ''
+  const v = vims.get(editor)
+  if (on && !v) {
+    // monaco-vim sets an inline display on its node, so hiding happens on a wrapper around it.
+    const el = status.appendChild(document.createElement('span'))
+    vims.set(editor, { vim: initVimMode(editor, el.appendChild(document.createElement('span'))), el })
   }
+  if (!on && v) {
+    v.vim.dispose()
+    v.el.remove()
+    vims.delete(editor)
+  }
+}
+/** Shows only the focused split's vim mode. */
+export function showVimFor(editor: monaco.editor.IStandaloneCodeEditor | null): void {
+  for (const [ed, v] of vims) v.el.hidden = ed !== editor
 }
 
 export { monaco }

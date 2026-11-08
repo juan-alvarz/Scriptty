@@ -1,16 +1,20 @@
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
-import type { MenuAction, TreeAction } from '../shared/protocol'
+import type { TreeAction } from '../shared/protocol'
+import { ACTIONS, type ActionId, type Bindings } from '../shared/keybindings'
 
 const isMac = process.platform === 'darwin'
 
-export function appMenu(send: (a: MenuAction) => void): Menu {
-  const debugItem = (label: string, accelerator: string, action: MenuAction): MenuItemConstructorOptions => ({
+/**
+ * The menu shows each action's current shortcut. The keys themselves are matched in main's
+ * before-input-event (index.ts), whose preventDefault also keeps the accelerator here from firing twice.
+ */
+export function appMenu(send: (a: ActionId) => void, keys: Bindings): Menu {
+  const item = (id: ActionId, label: string = ACTIONS.find((a) => a.id === id)!.label): MenuItemConstructorOptions => ({
     label,
-    accelerator,
-    registerAccelerator: false,
-    click: () => send(action)
+    accelerator: keys[id] || undefined,
+    click: () => send(id)
   })
-  const settings: MenuItemConstructorOptions = { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('settings') }
+  const settings = item('settings', 'Settings…')
   const template: MenuItemConstructorOptions[] = [
     ...(isMac
       ? [
@@ -35,12 +39,12 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
     {
       label: 'File',
       submenu: [
-        { label: 'New File', accelerator: 'CmdOrCtrl+N', click: () => send('new-file') },
-        { label: 'New Folder', accelerator: 'Shift+CmdOrCtrl+N', click: () => send('new-folder') },
+        item('new-file'),
+        item('new-folder'),
         { type: 'separator' },
-        { label: 'Go to File…', accelerator: 'CmdOrCtrl+P', click: () => send('quick-open') },
+        item('quick-open', 'Go to File…'),
         { type: 'separator' },
-        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => send('close-tab') },
+        item('close-tab'),
         ...(isMac
           ? [{ label: 'Close Window', accelerator: 'Shift+Cmd+W', role: 'close' } as const]
           : [{ type: 'separator' } as const, settings, { type: 'separator' } as const, { role: 'quit' } as const])
@@ -50,14 +54,18 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
     {
       label: 'View',
       submenu: [
-        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => send('toggle-sidebar') },
-        { label: 'Search Scratches', accelerator: 'Shift+CmdOrCtrl+F', click: () => send('search') },
+        item('toggle-sidebar'),
+        item('search'),
         { type: 'separator' },
-        { label: 'Next Tab', accelerator: 'Ctrl+Tab', click: () => send('next-tab') },
-        { label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab', click: () => send('prev-tab') },
-        // Shown here; the keys themselves are caught in before-input-event (shortcuts.ts) so the editor never swallows them.
-        { label: 'Move Tab Left', accelerator: 'CmdOrCtrl+Shift+PageUp', click: () => send('move-tab-left') },
-        { label: 'Move Tab Right', accelerator: 'CmdOrCtrl+Shift+PageDown', click: () => send('move-tab-right') },
+        item('next-tab'),
+        item('prev-tab'),
+        item('move-tab-left'),
+        item('move-tab-right'),
+        { type: 'separator' },
+        item('split-right'),
+        item('focus-split-1'),
+        item('focus-split-2'),
+        item('focus-split-3'),
         { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' },
@@ -71,23 +79,20 @@ export function appMenu(send: (a: MenuAction) => void): Menu {
     },
     {
       label: 'Run',
-      // ⌘. / Ctrl+. is Quick Fix in Monaco; the editor rebinds it to Stop too (App.svelte), so both agree.
-      submenu: [{ label: 'Stop', accelerator: 'CmdOrCtrl+.', click: () => send('stop') }]
+      submenu: [item('run'), item('stop')]
     },
     {
       label: 'Debug',
-      // The renderer handles these keys itself (Monaco binds F8); the menu only shows them. registerAccelerator
-      // is ignored on macOS, where a key the page already handled does not reach the menu.
       submenu: [
-        debugItem('Start Debugging', 'F5', 'debug-start'),
-        debugItem('Stop Debugging', 'Shift+F5', 'debug-stop'),
+        item('debug-start'),
+        item('debug-stop'),
         { type: 'separator' },
-        debugItem('Continue', 'F8', 'debug-continue'),
-        debugItem('Step Over', 'F10', 'debug-step-over'),
-        debugItem('Step Into', 'F11', 'debug-step-into'),
-        debugItem('Step Out', 'Shift+F11', 'debug-step-out'),
+        item('debug-continue'),
+        item('debug-step-over'),
+        item('debug-step-into'),
+        item('debug-step-out'),
         { type: 'separator' },
-        debugItem('Toggle Breakpoint', 'F9', 'toggle-breakpoint')
+        item('toggle-breakpoint')
       ]
     },
     { role: 'windowMenu' }

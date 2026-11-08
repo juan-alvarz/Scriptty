@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { TreeNode } from '../../shared/protocol'
   import Tree from './Tree.svelte'
+  import { FILE_DRAG, type FileDrag } from './splits'
 
   type Props = {
     nodes: TreeNode[]
@@ -21,6 +22,13 @@
     el.focus()
     const dot = el.value.lastIndexOf('.')
     el.setSelectionRange(0, dot > 0 ? dot : el.value.length)
+  }
+
+  /** Files drag onto an editor split: its edges open a new split, its middle opens the file there. */
+  function drag(e: DragEvent, n: TreeNode): void {
+    if (!e.dataTransfer) return
+    e.dataTransfer.setData(FILE_DRAG, JSON.stringify({ path: n.path, from: null } satisfies FileDrag))
+    e.dataTransfer.effectAllowed = 'copy'
   }
 
   function key(e: KeyboardEvent, n: TreeNode): void {
@@ -51,6 +59,8 @@
       class:sel={selected === n.path && current !== n.path}
       style="padding-left: {8 + depth * 14}px"
       onclick={() => onopen(n)}
+      draggable={n.kind === 'file'}
+      ondragstart={(e) => drag(e, n)}
       oncontextmenu={(e) => {
         e.preventDefault()
         e.stopPropagation()

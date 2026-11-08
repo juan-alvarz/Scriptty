@@ -8,7 +8,6 @@ import type {
   DebugScope,
   DebugValue,
   DebugVar,
-  MenuAction,
   PackageList,
   PackageDetails,
   Result,
@@ -23,6 +22,7 @@ import type {
   TreeNode,
   TypeLib
 } from '../shared/protocol'
+import type { ActionId } from '../shared/keybindings'
 
 function listen<T>(channel: string, cb: (m: T) => void): () => void {
   const h = (_e: IpcRendererEvent, m: T): void => cb(m)
@@ -36,7 +36,8 @@ const api = {
   /** Stops the active run. Resolves false if nothing was running. */
   stop: (): Promise<boolean> => ipcRenderer.invoke('stop'),
   onEvent: (cb: (e: RunnerEvent) => void) => listen('runner:event', cb),
-  onMenu: (cb: (a: MenuAction) => void) => listen('menu', cb),
+  /** App actions, from a shortcut (matched in main) or the menu. */
+  onMenu: (cb: (a: ActionId) => void) => listen('menu', cb),
   debug: {
     /** Runs `code` as `file` with the debugger attached; it stops at `breakpoints` and `debugger;` statements. */
     start: (code: string, file: string, breakpoints: Breakpoints): Promise<RunResponse> => ipcRenderer.invoke('debug:start', code, file, breakpoints),
@@ -84,6 +85,11 @@ const api = {
     open: (): Promise<void> => ipcRenderer.invoke('snippets:open'),
     reveal: (): Promise<void> => ipcRenderer.invoke('snippets:reveal'),
     onChange: (cb: (s: SnippetsState) => void) => listen('snippets:changed', cb)
+  },
+  keys: {
+    /** Resolves with the next shortcut pressed, or null for Esc or cancel(). App shortcuts do nothing meanwhile. */
+    record: (): Promise<string | null> => ipcRenderer.invoke('keys:record'),
+    cancel: (): Promise<void> => ipcRenderer.invoke('keys:cancel')
   },
   bundle: (rel: string, o: BundleOptions): Promise<Result<string>> => ipcRenderer.invoke('bundle', rel, o),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url)

@@ -1,21 +1,25 @@
 <script lang="ts">
   import { autoScrollStep, DRAG_THRESHOLD, dropIndex, gapX, insertionIndex, isNoop } from './tabs'
+  import { withKey } from './keys.svelte'
 
   type Props = {
     tabs: string[]
     current: string
-    mod: string
     onopen: (rel: string) => void
     onclose: (rel: string) => void
     /** Drag reorder: move the tab at `from` so it ends up at `to`. */
     onmove: (from: number, to: number) => void
+    /** A tab dragged off the strip (onto an editor, to split or move it): the pointer, or null when it comes back or the drag ends. */
+    ondragout: (rel: string, at: { x: number; y: number } | null) => void
+    /** That tab was released off the strip. */
+    ondropout: (rel: string, at: { x: number; y: number }) => void
   }
-  let { tabs, current, mod, onopen, onclose, onmove }: Props = $props()
+  let { tabs, current, onopen, onclose, onmove, ondragout, ondropout }: Props = $props()
 
   let el: HTMLDivElement
 
   // A press on a tab; it becomes a drag only after DRAG_THRESHOLD px, so clicks and middle-clicks stay as they were.
-  let press: { from: number; id: number; x0: number; x: number } | null = null
+  let press: { from: number; id: number; x0: number; y0: number; x: number; y: number } | null = null
   let dragging = $state(-1) // index of the tab being dragged
   // Floating copy of the dragged tab: its size, where it was grabbed, and the pointer it follows (client px).
   let ghost = $state<{ w: number; h: number; dx: number; dy: number; x: number; y: number } | null>(null)
@@ -26,15 +30,16 @@
 
   function onpointerdown(e: PointerEvent, i: number): void {
     if (e.button !== 0 || (e.target as Element).closest('.fx')) return
-    press = { from: i, id: e.pointerId, x0: e.clientX, x: e.clientX }
+    press = { from: i, id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY }
   }
 
   function onpointermove(e: PointerEvent): void {
     if (!press || e.pointerId !== press.id) return
     if (!(e.buttons & 1)) return end() // released outside the strip before the drag started
     press.x = e.clientX
+    press.y = e.clientY
     if (dragging < 0) {
-      if (Math.abs(press.x - press.x0) < DRAG_THRESHOLD) return
+      if (Math.hypot(press.x - press.x0, press.y - press.y0) < DRAG_THRESHOLD) return
       dragging = press.from
       const r = el.querySelectorAll('.ftab')[press.from].getBoundingClientRect()
       ghost = { w: r.width, h: r.height, dx: press.x0 - r.left, dy: e.clientY - r.top, x: 0, y: 0 }
@@ -49,9 +54,21 @@
     track()
   }
 
+  /** Off the strip vertically: the drop goes to an editor, not to a gap between tabs. */
+  const off = (y: number): boolean => {
+    const r = el.getBoundingClientRect()
+    return y < r.top || y > r.bottom
+  }
+
   /** Recomputes the drop gap and indicator from the pointer and the tabs' current rects. */
   function track(): void {
     if (!press) return
+    if (off(press.y)) {
+      gap = -1
+      ondragout(tabs[press.from], { x: press.x, y: press.y })
+      return
+    }
+    ondragout(tabs[press.from], null)
     const spans = [...el.querySelectorAll('.ftab')].map((t) => t.getBoundingClientRect())
     const g = insertionIndex(press.x, spans)
     gap = isNoop(press.from, g) ? -1 : g
@@ -72,7 +89,8 @@
   function onpointerup(e: PointerEvent): void {
     if (!press || e.pointerId !== press.id) return
     if (dragging >= 0) {
-      if (gap >= 0) onmove(press.from, dropIndex(press.from, gap))
+      if (off(e.clientY)) ondropout(tabs[press.from], { x: e.clientX, y: e.clientY })
+      else if (gap >= 0) onmove(press.from, dropIndex(press.from, gap))
       // The release can still produce a click on a tab; it must not also activate it.
       swallowClick = true
       setTimeout(() => (swallowClick = false))
@@ -82,6 +100,7 @@
 
   function end(): void {
     cancelAnimationFrame(frame)
+    if (press && dragging >= 0) ondragout(tabs[press.from], null)
     if (press && el.hasPointerCapture(press.id)) el.releasePointerCapture(press.id)
     press = null
     dragging = -1
@@ -137,7 +156,7 @@
       >
         {l.name}{#if l.dir}<span class="fdir">{l.dir}</span>{/if}
       </button>
-      <button class="fx" aria-label="Close {t}" title="Close ({mod}W)" onclick={() => onclose(t)}>×</button>
+      <button class="fx" aria-label="Close {t}" title={withKey('Close', 'close-tab')} onclick={() => onclose(t)}>×</button>
     </div>
   {/each}
   {#if gap >= 0}<div class="drop" style="left: {barX}px" aria-hidden="true"></div>{/if}

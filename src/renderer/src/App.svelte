@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { createEditor, disposeModels, lineHeightFor, modelFor, monaco, setTypeLibs, setVim } from './monaco'
+  import { onMount, tick, untrack } from 'svelte'
+  import { createEditor, disposeModels, lineHeightFor, modelFor, monaco, setTypeLibs, setVim, showVimFor } from './monaco'
   import Sidebar from './Sidebar.svelte'
   import Toolbar from './Toolbar.svelte'
   import Splitter from './Splitter.svelte'
-  import FileTabs from './FileTabs.svelte'
+  import EditorGroup from './EditorGroup.svelte'
   import ResultsPanel from './ResultsPanel.svelte'
   import BundlePanel from './BundlePanel.svelte'
   import StatusBar from './StatusBar.svelte'
@@ -20,39 +20,51 @@
     toggleBreakpoint,
     type BreakpointItem
   } from './breakpoints'
-  import {
-    DEFAULT_SETTINGS,
-    WIDTH_LIMITS,
-    type DebugCommand,
-    type DebugEvent,
-    type MenuAction,
-    type RunnerEvent,
-    type Settings,
-    type SearchMatch,
-    type TreeNode
-  } from '../../shared/protocol'
   import { moveTab, stepIndex } from './tabs'
   import MissingBanner from './MissingBanner.svelte'
   import { registerMissingQuickFix, setMissing } from './missing'
   import { RUNTIME_OWNER, runtimeMarkers } from './markers'
   import QuickOpen from './QuickOpen.svelte'
+  import { keymap, mac } from './keys.svelte'
+  import { dropZone, focusAfterClose, type FileDrag, type Zone } from './splits'
+  import { ACTIONS, resolve, toMonaco, type ActionId, type Bindings } from '../../shared/keybindings'
+  import {
+    DEFAULT_SETTINGS,
+    MAX_SPLITS,
+    WIDTH_LIMITS,
+    type DebugCommand,
+    type DebugEvent,
+    type RunnerEvent,
+    type SearchMatch,
+    type Settings,
+    type TreeNode
+  } from '../../shared/protocol'
 
   const api = window.scriptty
-  const mod = api.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
-  let editorEl: HTMLDivElement
   let bodyEl: HTMLDivElement
   let resultsPanel: ReturnType<typeof ResultsPanel>
   let bundlePanel: ReturnType<typeof BundlePanel>
   let missingBanner: ReturnType<typeof MissingBanner>
   let vimEl = $state<HTMLSpanElement>()
+
+  /** One editor split: its tabs and the file it shows. `id` never changes while the split is open. */
+  type Group = { id: number; tabs: string[]; current: string }
+  let groups = $state<Group[]>([{ id: 0, tabs: [], current: '' }])
+  let activeId = $state(0)
+  let nextId = 1
+  const editors = new Map<number, monaco.editor.IStandaloneCodeEditor>()
+  // The focused split's editor: runs, the results gutter, error markers and the Bundle tab follow it.
   // Raw: Monaco objects must not be wrapped in a Svelte proxy.
   let editor = $state.raw<monaco.editor.IStandaloneCodeEditor | null>(null)
+  const active = $derived(groups.find((g) => g.id === activeId) ?? groups[0])
+  const current = $derived(active.current)
+  const tabs = $derived(active.tabs)
+  const byId = (id: number): Group | undefined => groups.find((g) => g.id === id)
 
   let settings = $state<Settings>({ ...DEFAULT_SETTINGS })
   let root = $state('')
   let tree = $state<TreeNode[]>([])
-  let current = $state('')
   let selected = $state('')
   let renaming = $state('')
   let collapsed = $state<Record<string, boolean>>({})
@@ -65,12 +77,16 @@
   const refreshBps = (): void => void (bps = listBreakpoints())
   let sideMode = $state<'files' | 'search'>('files')
   let searchFocus = $state(0)
-  let tabs = $state<string[]>([])
   let ready = $state(false)
   // Packages the current file imports that are not installed (from the last run).
   let missing = $state<string[]>([])
-  // Cursor, selection and scroll per open file, restored when its tab comes back.
-  const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>()
+  // Cursor, selection and scroll per split and file, restored when that tab comes back.
+  const viewStates = new Map<number, Map<string, monaco.editor.ICodeEditorViewState | null>>()
+  function viewsOf(id: number): Map<string, monaco.editor.ICodeEditorViewState | null> {
+    let m = viewStates.get(id)
+    if (!m) viewStates.set(id, (m = new Map()))
+    return m
+  }
   // Live pane widths while dragging; saved to settings when the drag ends.
   let sideW = $state(DEFAULT_SETTINGS.sidebarWidth)
   let resW = $state(DEFAULT_SETTINGS.resultsWidth)
@@ -80,8 +96,6 @@
   type Session = { runId: number; paused: Paused | null; frame: number; finished: boolean }
   let session = $state<Session | null>(null)
   const endedRuns = new Set<number>()
-  /** The last debug key handled here, so the same action from the menu's accelerator is not run twice. */
-  let lastKey = { action: '', at: 0 }
 
   let currentRun = -1
   let fresh = false
@@ -150,7 +164,7 @@
     }
   }
 
-  /** Debug: runs the current file in its own process with the inspector, stopping at breakpoints. */
+  /** Debug: runs the focused split's file in its own process with the inspector, stopping at breakpoints. */
   async function startDebug(): Promise<void> {
     clearTimeout(runTimer)
     if (!editor || !current) return
@@ -196,14 +210,14 @@
     }
   }
 
-  /** Shows a call stack frame: opens its file if needed and marks the line. */
+  /** Shows a call stack frame: opens its file in the focused split if needed and marks the line (in every split showing it). */
   async function showFrame(i: number): Promise<void> {
     const f = session?.paused?.frames[i]
-    if (!f || !editor || !session) return
+    if (!f || !session) return
     session.frame = i
     if (f.file !== current && findNode(f.file)?.kind === 'file') await open(f.file)
     markPaused({ rel: f.file, line: f.line, top: i === 0 })
-    if (f.file === current) editor.revealLineInCenterIfOutsideViewport(f.line)
+    if (f.file === current) editor?.revealLineInCenterIfOutsideViewport(f.line)
   }
 
   function debugCommand(c: DebugCommand): void {
@@ -225,54 +239,15 @@
     refreshBps()
   }
 
-  /** Opens a breakpoint's file and puts the cursor on its line. */
-  async function jumpTo(rel: string, line: number): Promise<void> {
-    if (rel !== current) await open(rel)
-    if (!editor || current !== rel) return
-    editor.setPosition({ lineNumber: line, column: 1 })
-    editor.revealLineInCenterIfOutsideViewport(line)
-    editor.focus()
+  /** Opens a breakpoint's file in the focused split and puts the cursor on its line. */
+  function jumpTo(rel: string, line: number): Promise<void> {
+    return goTo(rel, { lineNumber: line, column: 1 })
   }
 
   function toggleBreakpointAtCursor(): void {
     const model = editor?.getModel()
     const pos = editor?.getPosition()
     if (model && pos) syncBreakpoints(current, toggleBreakpoint(model, pos.lineNumber))
-  }
-
-  function debugAction(a: MenuAction): void {
-    if (a === 'debug-start') {
-      if (session?.paused) debugCommand('continue')
-      else if (!session) startDebug()
-    } else if (a === 'debug-stop') stopDebug()
-    else if (a === 'debug-continue') debugCommand('continue')
-    else if (a === 'debug-step-over') debugCommand('stepOver')
-    else if (a === 'debug-step-into') debugCommand('stepInto')
-    else if (a === 'debug-step-out') debugCommand('stepOut')
-    else if (a === 'toggle-breakpoint') toggleBreakpointAtCursor()
-  }
-
-  /**
-   * Debug keys, caught before Monaco (it binds F8 to "next problem"). The menu shows the same keys; on macOS a
-   * key the page handles never reaches the menu, and elsewhere the menu does not register them.
-   */
-  function onDebugKey(e: KeyboardEvent): void {
-    if (e.altKey) return
-    const cmd = api.platform === 'darwin' ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
-    const plain = !e.metaKey && !e.ctrlKey
-    let a: MenuAction | null = null
-    if (cmd && e.shiftKey && e.key.toLowerCase() === 'd') a = 'debug-start'
-    else if (!plain) return
-    else if (e.key === 'F5') a = e.shiftKey ? 'debug-stop' : 'debug-start'
-    else if (e.key === 'F8' && !e.shiftKey && session?.paused) a = 'debug-continue'
-    else if (e.key === 'F9' && !e.shiftKey) a = 'toggle-breakpoint'
-    else if (e.key === 'F10' && !e.shiftKey) a = 'debug-step-over'
-    else if (e.key === 'F11') a = e.shiftKey ? 'debug-step-out' : 'debug-step-into'
-    if (!a) return
-    e.preventDefault()
-    e.stopPropagation()
-    lastKey = { action: a, at: Date.now() }
-    debugAction(a)
   }
 
   async function flush(): Promise<void> {
@@ -283,6 +258,22 @@
     const r = await api.fs.write(s.rel, s.content)
     if (!r.ok) notice = `Could not save ${s.rel}: ${r.error}`
     else if (view === 'bundle') bundlePanel.refresh()
+  }
+
+  /** Autosave, and a run when the edit is in the focused split. Two splits on one file share a model, so both report it. */
+  function edited(id: number, ed: monaco.editor.IStandaloneCodeEditor): void {
+    const rel = byId(id)?.current
+    if (!rel) return
+    if (bps.length) refreshBps()
+    if (pendingSave && pendingSave.rel !== rel) flush()
+    pendingSave = { rel, content: ed.getValue() }
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(flush, 400)
+    // Live runs wait while the debugger is paused; they take over again when the session ends.
+    if (settings.autoRun && id === activeId && !session?.paused) {
+      clearTimeout(runTimer)
+      runTimer = setTimeout(runNow, settings.runDelayMs)
+    }
   }
 
   async function showView(v: 'results' | 'bundle' | 'debugger'): Promise<void> {
@@ -302,7 +293,7 @@
 
   const toggleSidebar = (): Promise<void> => change({ sidebarHidden: !settings.sidebarHidden })
 
-  /** ⇧⌘F: shows the sidebar in Search mode with the query box focused. */
+  /** Shows the sidebar in Search mode with the query box focused. */
   function openSearch(): void {
     if (settings.sidebarHidden) change({ sidebarHidden: false })
     sideMode = 'search'
@@ -314,7 +305,7 @@
     return goTo(m.path, new monaco.Range(m.line, m.col, m.line, m.col + m.length))
   }
 
-  /** Opens `rel` in a tab and selects `at` (a range or a cursor position), scrolled into view. */
+  /** Opens `rel` in the focused split and selects `at` (a range or a cursor position), scrolled into view. */
   async function goTo(rel: string, at?: monaco.IRange | monaco.IPosition): Promise<void> {
     await open(rel)
     if (!editor || current !== rel) return
@@ -358,28 +349,111 @@
   }
 
   const parentOf = (path: string): string => path.split('/').slice(0, -1).join('/')
-  const saveTabs = async (): Promise<void> => {
-    settings = await api.settings.set({ openFiles: [...tabs] })
+  /** Saves every split's tabs and which split is focused, for the next launch. */
+  const saveLayout = async (): Promise<void> => {
+    const splits = groups.map((g) => ({ files: [...g.tabs], current: g.current }))
+    settings = await api.settings.set({ splits, activeSplit: Math.max(0, groups.findIndex((g) => g.id === activeId)) })
   }
 
-  async function closeTab(rel: string): Promise<void> {
-    const i = tabs.indexOf(rel)
-    if (i < 0) return
-    if (rel === current) await flush()
-    viewStates.delete(rel)
-    tabs = tabs.filter((t) => t !== rel)
-    if (rel === current) {
-      const next = tabs[i] ?? tabs[i - 1]
-      if (next) await open(next)
-      else closeEditor()
+  /** Moves focus to split `id`: the results, Run/Stop and the Bundle tab switch to its file, which runs. */
+  function activate(id: number): void {
+    flush()
+    activeId = id
+    editor = editors.get(id) ?? null
+    showVimFor(editor)
+    resultsPanel.reset()
+    setMissing((missing = []))
+    const g = byId(id)
+    if (g?.current) {
+      selected = g.current
+      // While paused, showing a file (the debugger may do it for a frame) must not replace the paused run.
+      if (!session?.paused) runNow()
+      if (view === 'bundle') bundlePanel.refresh()
+    } else {
+      bundlePanel.clear()
+      status = { mode: 'live', info: '' }
     }
-    await saveTabs()
   }
 
-  function closeEditor(): void {
-    editor?.setModel(null)
+  function focusGroup(id: number): void {
+    if (id === activeId || !byId(id)) return
+    activate(id)
+    saveLayout()
+  }
+
+  /** Opens `rel` in a new split at position `at` (0 is the far left) and focuses it. Null when no more splits fit. */
+  async function split(at: number, rel: string): Promise<number | null> {
+    if (groups.length >= MAX_SPLITS) return null
+    const id = nextId++
+    groups.splice(at, 0, { id, tabs: [], current: '' })
+    await tick() // its EditorGroup mounts and creates the editor
+    await open(rel, id)
+    if (!byId(id)?.current) closeSplit(id) // the file could not be read
+    return id
+  }
+
+  function closeSplit(id: number): void {
+    const next = focusAfterClose(
+      groups.map((g) => g.id),
+      id,
+      activeId
+    )
+    groups = groups.filter((g) => g.id !== id)
+    viewStates.delete(id)
+    if (next !== activeId) activate(next)
+  }
+
+  /** Focus Split 1/2/3. The one right after the last split opens it with the current file, like VS Code. */
+  function focusSplit(i: number): void {
+    const g = groups[i]
+    if (!g) {
+      if (current) split(groups.length, current)
+      return
+    }
+    focusGroup(g.id)
+    editors.get(g.id)?.focus()
+  }
+
+  /** Where a tab dragged off its strip would land: the split under the pointer and the zone in it. */
+  let tabHover = $state<{ id: number; zone: Zone } | null>(null)
+  function splitAt(at: { x: number; y: number } | null): { id: number; zone: Zone } | null {
+    const ed = at && document.elementFromPoint(at.x, at.y)?.closest<HTMLElement>('[data-split] .editor')
+    if (!at || !ed) return null
+    const r = ed.getBoundingClientRect()
+    return { id: Number(ed.closest<HTMLElement>('[data-split]')!.dataset.split), zone: dropZone(at.x - r.left, r.width, groups.length < MAX_SPLITS) }
+  }
+
+  /** A file dropped on split `target`: its edges open a new split there, its middle opens the file in it. Tabs move; tree files open. */
+  async function dropFile(target: number, zone: Zone, d: FileDrag): Promise<void> {
+    const at = groups.findIndex((g) => g.id === target) + (zone === 'right' ? 1 : 0)
+    const into = zone === 'center' ? target : ((await split(at, d.path)) ?? target)
+    if (into === target) await open(d.path, target)
+    if (d.from !== null && d.from !== into) await closeTab(d.path, d.from)
+  }
+
+  async function closeTab(rel: string, id = activeId): Promise<void> {
+    const g = byId(id)
+    const i = g ? g.tabs.indexOf(rel) : -1
+    if (!g || i < 0) return
+    if (rel === g.current) await flush()
+    viewsOf(id).delete(rel)
+    g.tabs = g.tabs.filter((t) => t !== rel)
+    // Closing a split's last tab closes the split, unless it is the only one.
+    if (!g.tabs.length && groups.length > 1) closeSplit(id)
+    else if (rel === g.current) {
+      const next = g.tabs[i] ?? g.tabs[i - 1]
+      if (next) await open(next, id, false)
+      else closeEditor(id)
+    }
+    await saveLayout()
+  }
+
+  function closeEditor(id = activeId): void {
+    editors.get(id)?.setModel(null)
+    const g = byId(id)
+    if (g) g.current = ''
+    if (id !== activeId) return
     bundlePanel.clear()
-    current = ''
     setMissing((missing = []))
     resultsPanel.reset()
     status = { mode: 'live', info: '' }
@@ -391,12 +465,15 @@
     open(tabs[(i + step + tabs.length) % tabs.length])
   }
 
-  function reorder(from: number, to: number): void {
-    tabs = moveTab(tabs, from, to)
-    saveTabs()
+  /** Drag reorder within split `id`. */
+  function reorder(from: number, to: number, id = activeId): void {
+    const g = byId(id)
+    if (!g) return
+    g.tabs = moveTab(g.tabs, from, to)
+    saveLayout()
   }
 
-  /** ⌘⇧PageUp / PageDown (Ctrl+Shift elsewhere): moves the current tab one place, stopping at the ends. */
+  /** Move Tab Left / Right: moves the focused split's current tab one place, stopping at the ends. */
   function stepTab(step: number): void {
     const i = tabs.indexOf(current)
     const to = stepIndex(tabs.length, i, step)
@@ -412,33 +489,41 @@
     if (all.ok) for (const f of all.value) modelFor(f.path, f.content)
   }
 
-  async function open(rel: string): Promise<void> {
-    if (!editor || rel === current) return
+  /**
+   * Shows `rel` in split `id` (the focused one by default), adding a tab if needed.
+   * `focus` false leaves focus where it is, unless `id` is the focused split.
+   */
+  async function open(rel: string, id = activeId, focus = true): Promise<void> {
+    const g = byId(id)
+    const ed = editors.get(id)
+    if (!g || !ed) return
+    if (rel === g.current) {
+      if (focus) focusGroup(id)
+      return
+    }
     await flush()
     const r = await api.fs.read(rel)
     if (!r.ok) {
       notice = `Could not open ${rel}: ${r.error}`
       return
     }
-    if (current) viewStates.set(current, editor.saveViewState())
+    if (g.current) viewsOf(id).set(g.current, ed.saveViewState())
     const model = modelFor(rel, r.value)
     model.updateOptions({ tabSize: settings.tabSize })
-    editor.setModel(model)
-    const saved = viewStates.get(rel)
-    if (saved) editor.restoreViewState(saved)
+    ed.setModel(model)
+    const saved = viewsOf(id).get(rel)
+    if (saved) ed.restoreViewState(saved)
     // New tabs open right after the current one, like most editors.
-    if (!tabs.includes(rel)) {
-      const i = tabs.indexOf(current)
-      tabs = i < 0 ? [...tabs, rel] : [...tabs.slice(0, i + 1), rel, ...tabs.slice(i + 1)]
+    if (!g.tabs.includes(rel)) {
+      const i = g.tabs.indexOf(g.current)
+      g.tabs = i < 0 ? [...g.tabs, rel] : [...g.tabs.slice(0, i + 1), rel, ...g.tabs.slice(i + 1)]
     }
-    current = rel
-    selected = rel
-    resultsPanel.reset()
-    settings = await api.settings.set({ lastFile: rel, openFiles: [...tabs] })
-    editor.focus()
-    // While paused, opening a file (the debugger may do it for a frame) must not replace the paused run.
-    if (!session?.paused) runNow()
-    if (view === 'bundle') bundlePanel.refresh()
+    g.current = rel
+    if (focus || id === activeId) {
+      activate(id)
+      if (focus) ed.focus()
+    }
+    await saveLayout()
   }
 
   /** New file or folder next to the selection; a new name field opens right away. */
@@ -471,18 +556,20 @@
     }
     notice = ''
     const remap = (p: string): string => (p === node.path ? r.value : p.startsWith(node.path + '/') ? r.value + p.slice(node.path.length) : p)
-    const moved = current && remap(current) !== current ? remap(current) : ''
-    tabs = tabs.map(remap)
-    for (const k of [...viewStates.keys()]) if (remap(k) !== k) viewStates.delete(k)
+    const moved = groups.filter((g) => g.current && remap(g.current) !== g.current).map((g) => ({ id: g.id, to: remap(g.current) }))
+    for (const g of groups) g.tabs = g.tabs.map(remap)
+    for (const m of viewStates.values()) for (const k of [...m.keys()]) if (remap(k) !== k) m.delete(k)
     disposeModels(node.path)
     await refreshTree()
     refreshBps()
     selected = r.value
-    if (moved) {
-      current = ''
-      await open(moved)
+    for (const m of moved) {
+      const g = byId(m.id)
+      if (!g) continue
+      g.current = ''
+      await open(m.to, m.id, false)
     }
-    await saveTabs()
+    await saveLayout()
   }
 
   async function trash(node: TreeNode): Promise<void> {
@@ -493,20 +580,22 @@
       return
     }
     const gone = (p: string): boolean => p === node.path || p.startsWith(node.path + '/')
-    const affected = gone(current)
-    const idx = tabs.indexOf(current)
-    tabs = tabs.filter((t) => !gone(t))
-    for (const k of [...viewStates.keys()]) if (gone(k)) viewStates.delete(k)
-    if (affected) closeEditor()
+    const affected = groups.filter((g) => gone(g.current)).map((g) => ({ id: g.id, idx: g.tabs.indexOf(g.current) }))
+    for (const g of groups) g.tabs = g.tabs.filter((t) => !gone(t))
+    for (const m of viewStates.values()) for (const k of [...m.keys()]) if (gone(k)) m.delete(k)
+    for (const a of affected) closeEditor(a.id)
     disposeModels(node.path)
     await refreshTree()
     refreshBps()
     selected = ''
-    if (affected) {
-      const next = tabs[idx] ?? tabs[idx - 1] ?? tabs[tabs.length - 1]
-      if (next) await open(next)
+    for (const a of affected) {
+      const g = byId(a.id)
+      const next = g && (g.tabs[a.idx] ?? g.tabs[a.idx - 1] ?? g.tabs[g.tabs.length - 1])
+      if (next) await open(next, a.id, false)
     }
-    await saveTabs()
+    // Splits left without tabs close, as when their last tab is closed.
+    for (const g of [...groups]) if (!g.tabs.length && groups.length > 1) closeSplit(g.id)
+    await saveLayout()
   }
 
   async function context(node: TreeNode | null): Promise<void> {
@@ -525,11 +614,15 @@
     else open(n.path)
   }
 
+  function applyTo(ed: monaco.editor.IStandaloneCodeEditor, s: Settings): void {
+    ed.updateOptions({ fontSize: s.fontSize, lineHeight: lineHeightFor(s.fontSize) })
+    ed.getModel()?.updateOptions({ tabSize: s.tabSize })
+    if (vimEl) setVim(ed, s.vim, vimEl)
+  }
+
   function apply(s: Settings): void {
-    if (!editor) return
-    editor.updateOptions({ fontSize: s.fontSize, lineHeight: lineHeightFor(s.fontSize) })
-    editor.getModel()?.updateOptions({ tabSize: s.tabSize })
-    if (vimEl) setVim(editor, s.vim, vimEl)
+    for (const ed of editors.values()) applyTo(ed, s)
+    showVimFor(editor)
   }
 
   async function change(p: Partial<Settings>): Promise<void> {
@@ -538,14 +631,104 @@
     if ('autoRun' in p && settings.autoRun) runNow()
   }
 
-  onMount(() => {
-    const ed = createEditor(editorEl)
-    editor = ed
+  /** What each app action does. Shortcuts are matched in main (before Monaco or vim can see them) and arrive here like menu clicks. */
+  const actions: Record<ActionId, () => void> = {
+    run: runNow,
+    stop,
+    'quick-open': () => (quickOpen = true),
+    search: openSearch,
+    'toggle-sidebar': toggleSidebar,
+    'new-file': () => create('file'),
+    'new-folder': () => create('folder'),
+    'close-tab': () => current && closeTab(current),
+    'next-tab': () => cycleTab(1),
+    'prev-tab': () => cycleTab(-1),
+    'move-tab-left': () => stepTab(-1),
+    'move-tab-right': () => stepTab(1),
+    'split-right': () => current && split(groups.findIndex((g) => g.id === activeId) + 1, current),
+    'focus-split-1': () => focusSplit(0),
+    'focus-split-2': () => focusSplit(1),
+    'focus-split-3': () => focusSplit(2),
+    'debug-start': () => (session?.paused ? debugCommand('continue') : !session && startDebug()),
+    'debug-start-alt': () => actions['debug-start'](),
+    'debug-stop': stopDebug,
+    // Not paused: the key keeps Monaco's meaning of F8 (next problem), as before the registry.
+    'debug-continue': () => (session?.paused ? debugCommand('continue') : editor?.trigger('keyboard', 'editor.action.marker.nextInFiles', null)),
+    'debug-step-over': () => debugCommand('stepOver'),
+    'debug-step-into': () => debugCommand('stepInto'),
+    'debug-step-out': () => debugCommand('stepOut'),
+    'toggle-breakpoint': toggleBreakpointAtCursor,
+    settings: () => (settingsOpen = true)
+  }
 
+  // App actions in Monaco's command palette (F1), with the user's shortcuts as labels.
+  const palette = new Map<monaco.editor.IStandaloneCodeEditor, monaco.IDisposable[]>()
+  function bindPalette(ed: monaco.editor.IStandaloneCodeEditor, keys: Bindings): void {
+    palette.get(ed)?.forEach((d) => d.dispose())
+    palette.set(
+      ed,
+      ACTIONS.map((a) => {
+        const k = toMonaco(keys[a.id], mac, monaco)
+        return ed.addAction({ id: 'scriptty.' + a.id, label: a.label, keybindings: k === null ? [] : [k], run: () => actions[a.id]() })
+      })
+    )
+  }
+
+  // Compared as text: settings is a new object after every save.
+  const keysJson = $derived(JSON.stringify(settings.keybindings))
+  $effect(() => {
+    const keys = resolve(JSON.parse(keysJson), mac)
+    keymap.map = keys
+    for (const ed of editors.values()) bindPalette(ed, keys)
+  })
+
+  /** Creates split `id`'s editor (EditorGroup calls this on mount); returns the cleanup for when the split closes. */
+  function mountEditor(id: number, el: HTMLElement): () => void {
+    const ed = createEditor(el)
+    editors.set(id, ed)
+    if (id === activeId) editor = ed
+    applyTo(ed, settings)
+    showVimFor(editor)
+    bindPalette(ed, untrack(() => keymap.map))
+    const subs = [
+      ed.onDidChangeModelContent(() => edited(id, ed)),
+      ed.onDidFocusEditorText(() => focusGroup(id)),
+      attachBreakpointMargin(ed, syncBreakpoints)
+    ]
+    return () => {
+      subs.forEach((s) => s.dispose())
+      palette.get(ed)?.forEach((d) => d.dispose())
+      palette.delete(ed)
+      if (vimEl) setVim(ed, false, vimEl)
+      editors.delete(id)
+      if (editor === ed) editor = null
+      ed.dispose()
+    }
+  }
+
+  /** Reopens the saved splits and their tabs (files that are gone are skipped); the focused split opens last. */
+  async function restore(): Promise<void> {
+    const exists = (p: string): boolean => findNode(p)?.kind === 'file'
+    const saved = settings.splits.map((s) => ({ files: s.files.filter(exists), current: s.current })).filter((s) => s.files.length)
+    if (!saved.length) {
+      const start = firstFile()
+      return start ? open(start) : create('file')
+    }
+    groups = saved.map((s, i) => ({ id: i ? nextId++ : groups[0].id, tabs: s.files, current: '' }))
+    const focus = groups[Math.min(settings.activeSplit, groups.length - 1)].id
+    activeId = focus
+    await tick()
+    const first = (i: number): string => (exists(saved[i].current) ? saved[i].current : saved[i].files[0])
+    for (const [i, g] of groups.entries()) if (g.id !== focus) await open(first(i), g.id, false)
+    await open(first(groups.findIndex((g) => g.id === focus)), focus)
+  }
+
+  onMount(() => {
     const off = api.onEvent(onRunnerEvent)
     const offDebug = api.debug.onEvent(onDebugEvent)
-    // Go to definition (⌘/Ctrl+click, F12) into another scratch: Monaco only switches within one model, so open its tab.
-    // Package and lib .d.ts files have no model here, so those are left to Monaco (nothing opens).
+    // Go to definition (⌘/Ctrl+click, F12) into another scratch: Monaco only switches within one model, so open it
+    // in the focused split (the click focused the split it came from). Package and lib .d.ts files have no model
+    // here, so those are left to Monaco (nothing opens).
     const offOpener = monaco.editor.registerEditorOpener({
       openCodeEditor(_source, resource, at) {
         if (resource.scheme !== 'file' || resource.path.startsWith('/node_modules/')) return false
@@ -554,40 +737,7 @@
       }
     })
     const offFix = registerMissingQuickFix(monaco, (names) => missingBanner.install(names))
-    const offMenu = api.onMenu((a) => {
-      if (a.startsWith('debug-') || a === 'toggle-breakpoint') {
-        if (lastKey.action !== a || Date.now() - lastKey.at > 300) debugAction(a)
-      } else if (a === 'settings') settingsOpen = true
-      else if (a === 'quick-open') quickOpen = true
-      else if (a === 'toggle-sidebar') toggleSidebar()
-      else if (a === 'search') openSearch()
-      else if (a === 'close-tab') current && closeTab(current)
-      else if (a === 'next-tab') cycleTab(1)
-      else if (a === 'prev-tab') cycleTab(-1)
-      else if (a === 'move-tab-left') stepTab(-1)
-      else if (a === 'move-tab-right') stepTab(1)
-      else if (a === 'stop') stop()
-      else create(a === 'new-file' ? 'file' : 'folder')
-    })
-
-    ed.onDidChangeModelContent(() => {
-      if (bps.length) refreshBps()
-      pendingSave = { rel: current, content: ed.getValue() }
-      clearTimeout(saveTimer)
-      saveTimer = setTimeout(flush, 400)
-      // Live runs wait while the debugger is paused; they take over again when the session ends.
-      if (settings.autoRun && !session?.paused) {
-        clearTimeout(runTimer)
-        runTimer = setTimeout(runNow, settings.runDelayMs)
-      }
-    })
-    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runNow())
-    const margin = attachBreakpointMargin(ed, syncBreakpoints)
-    window.addEventListener('keydown', onDebugKey, true)
-    // Takes ⌘. / Ctrl+. from Quick Fix (still on the lightbulb), so the Stop menu shortcut works while typing.
-    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Period, stop)
-    // Same as the menu accelerator, bound here too so the editor (and vim mode) never keeps the key for itself.
-    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, openSearch)
+    const offMenu = api.onMenu((a) => actions[a]?.())
     window.addEventListener('beforeunload', flush)
 
     ;(async () => {
@@ -597,11 +747,7 @@
       root = await api.fs.root()
       apply(settings)
       await refreshTree()
-      const exists = (p: string): boolean => findNode(p)?.kind === 'file'
-      tabs = settings.openFiles.filter(exists)
-      const start = exists(settings.lastFile) ? settings.lastFile : (tabs[0] ?? firstFile())
-      if (start) await open(start)
-      else await create('file')
+      await restore()
       ready = true
       setTypeLibs(await api.packages.types())
     })()
@@ -610,14 +756,12 @@
       off()
       offDebug()
       offMenu()
-      margin.dispose()
-      window.removeEventListener('keydown', onDebugKey, true)
       offFix.dispose()
       offOpener.dispose()
-      ed.dispose()
     }
   })
 </script>
+
 
 <div class="window" style="grid-template-columns: {settings.sidebarHidden ? '' : `${sideW}px `}minmax(0, 1fr)">
   {#if !settings.sidebarHidden}
@@ -628,7 +772,6 @@
       {renaming}
       {collapsed}
       {notice}
-      {mod}
       mode={sideMode}
       {searchFocus}
       onmode={(m) => (sideMode = m)}
@@ -662,7 +805,6 @@
     <Toolbar
       sidebarHidden={settings.sidebarHidden}
       autoRun={settings.autoRun}
-      {mod}
       ontogglesidebar={toggleSidebar}
       ontoggleautorun={() => change({ autoRun: !settings.autoRun })}
       onrun={runNow}
@@ -674,18 +816,30 @@
     <MissingBanner bind:this={missingBanner} file={current} {missing} onadded={packagesChanged} />
 
     <div class="body" bind:this={bodyEl} style="grid-template-columns: minmax(0, 1fr) min({resW}px, calc(100% - 240px))">
-      <div class="col">
-        <FileTabs {tabs} {current} {mod} onopen={open} onclose={closeTab} onmove={reorder} />
-        <div class="editor">
-          <div class="host" bind:this={editorEl}></div>
-          {#if ready && !current}
-            <div class="noeditor">
-              <p>No file open</p>
-              <p class="muted">Pick a scratch in the sidebar, or start a new one.</p>
-              <button class="tbtn" onclick={() => create('file')}>New file ({mod}N)</button>
-            </div>
-          {/if}
-        </div>
+      <div class="splits">
+        {#each groups as g (g.id)}
+          <EditorGroup
+            id={g.id}
+            tabs={g.tabs}
+            current={g.current}
+            dimmed={groups.length > 1 && g.id !== activeId}
+            canSplit={groups.length < MAX_SPLITS}
+            {ready}
+            mount={mountEditor}
+            onfocus={() => focusGroup(g.id)}
+            onopen={(rel) => open(rel, g.id)}
+            onclose={(rel) => closeTab(rel, g.id)}
+            oncreate={() => (focusGroup(g.id), create('file'))}
+            ondrop={(zone, d) => dropFile(g.id, zone, d)}
+            onmove={(from, to) => reorder(from, to, g.id)}
+            ontabdrag={(_rel, at) => (tabHover = splitAt(at))}
+            ontabdrop={(path, at) => {
+              const h = splitAt(at)
+              if (h) dropFile(h.id, h.zone, { path, from: g.id })
+            }}
+            hover={tabHover?.id === g.id ? tabHover.zone : null}
+          />
+        {/each}
       </div>
       <div class="right">
         <Splitter
@@ -755,38 +909,10 @@
     display: grid;
     grid-template-rows: minmax(0, 1fr);
   }
-  .col {
+  .splits {
     display: flex;
-    flex-direction: column;
     min-width: 0;
     min-height: 0;
-  }
-  .editor {
-    position: relative;
-    flex: 1;
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden;
-  }
-  .noeditor {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 6px;
-    background: var(--bg);
-    text-align: center;
-  }
-  .noeditor p {
-    margin: 0;
-  }
-  .noeditor p:first-child {
-    font-size: 15px;
-    font-weight: 600;
-  }
-  .noeditor .tbtn {
-    margin-top: 8px;
   }
   .right {
     position: relative;
