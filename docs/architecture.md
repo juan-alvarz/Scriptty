@@ -61,6 +61,10 @@ Done (search, 2026-11-08):
 - `Workspace.search` in main (`src/main/workspace.ts`); an invalid regex comes back as `{ ok: false, error }` and is shown under the box. The open file is saved before each search, so unsaved typing is found.
 - The editor also binds ⇧⌘F itself (like ⌘Enter), so Monaco and vim mode never keep the key from the menu.
 
+Done (go to definition, 2026-11-08):
+- ⌘/Ctrl+click (or F12) on a name defined in another scratch opens that file's tab with the cursor on the definition. Monaco's standalone editor only jumps within the current model, so `App.svelte` registers an editor opener (`monaco.editor.registerEditorOpener`) that opens the tab through the same path as a search hit (`goTo`).
+- Definitions in package or lib `.d.ts` files have no model, so nothing opens for them yet.
+
 Not done yet:
 - Snippets: saving from Settings rewrites `snippets.json` and drops the user's own comments (the explanatory header is rewritten). Monaco's standalone build has no `tabCompletion` (prefix + Tab without the suggestion list), so the list must be open. Snippet variables (`$TM_FILENAME`, `$CLIPBOARD` …) resolve only as far as Monaco's standalone resolvers go.
 - `import.meta.dir` / `__dirname` in a scratch point at the packages folder's `.runs`, not the scratch (the working directory is right).
