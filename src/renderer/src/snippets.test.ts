@@ -43,7 +43,7 @@ describe('toSuggestions', () => {
       insertText: 'console.log($1)',
       detail: 'Log it',
       documentation: '```typescript\nconsole.log()\n```',
-      sortText: '0clg',
+      sortText: '~clg',
       startColumn: 1
     })
   })
