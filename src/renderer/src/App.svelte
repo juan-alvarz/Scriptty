@@ -310,12 +310,19 @@
   }
 
   /** Opens a search hit's file and selects the match. */
-  async function reveal(m: SearchMatch): Promise<void> {
-    await open(m.path)
-    if (!editor || current !== m.path) return
-    const range = new monaco.Range(m.line, m.col, m.line, m.col + m.length)
-    editor.setSelection(range)
-    editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth)
+  function reveal(m: SearchMatch): Promise<void> {
+    return goTo(m.path, new monaco.Range(m.line, m.col, m.line, m.col + m.length))
+  }
+
+  /** Opens `rel` in a tab and selects `at` (a range or a cursor position), scrolled into view. */
+  async function goTo(rel: string, at?: monaco.IRange | monaco.IPosition): Promise<void> {
+    await open(rel)
+    if (!editor || current !== rel) return
+    if (at) {
+      const range = 'startLineNumber' in at ? monaco.Range.lift(at) : monaco.Range.fromPositions(at)
+      editor.setSelection(range)
+      editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth)
+    }
     editor.focus()
   }
   const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
@@ -537,6 +544,15 @@
 
     const off = api.onEvent(onRunnerEvent)
     const offDebug = api.debug.onEvent(onDebugEvent)
+    // Go to definition (⌘/Ctrl+click, F12) into another scratch: Monaco only switches within one model, so open its tab.
+    // Package and lib .d.ts files have no model here, so those are left to Monaco (nothing opens).
+    const offOpener = monaco.editor.registerEditorOpener({
+      openCodeEditor(_source, resource, at) {
+        if (resource.scheme !== 'file' || resource.path.startsWith('/node_modules/')) return false
+        void goTo(resource.path.slice(1), at)
+        return true
+      }
+    })
     const offFix = registerMissingQuickFix(monaco, (names) => missingBanner.install(names))
     const offMenu = api.onMenu((a) => {
       if (a.startsWith('debug-') || a === 'toggle-breakpoint') {
@@ -597,6 +613,7 @@
       margin.dispose()
       window.removeEventListener('keydown', onDebugKey, true)
       offFix.dispose()
+      offOpener.dispose()
       ed.dispose()
     }
   })

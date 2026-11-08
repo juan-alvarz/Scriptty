@@ -80,6 +80,10 @@ Done (editor completions, 2026-11-08):
 - Relative import paths complete from the workspace: `from './'` lists sibling folders (first) and files, `../` goes up, picking a folder suggests again. `.ts`/`.js`/`.tsx`/`.jsx` are left off, as bun resolves them. The TS worker cannot list folders, so the paths come from the models (every scratch is one); the logic is `src/renderer/src/importPaths.ts`, unit-tested.
 - Snippets sort after TS suggestions on a tie (decision 20).
 
+Done (go to definition, 2026-11-08):
+- ⌘/Ctrl+click (or F12) on a name defined in another scratch opens that file's tab with the cursor on the definition. Monaco's standalone editor only jumps within the current model, so `App.svelte` registers an editor opener (`monaco.editor.registerEditorOpener`) that opens the tab through the same path as a search hit (`goTo`).
+- Definitions in package or lib `.d.ts` files have no model, so nothing opens for them yet.
+
 Not done yet:
 - Debugger: breakpoints are not saved across restarts; no conditional breakpoints or console while paused; watch expressions run for real (`n++` changes `n`, a call runs the function) and one that loops forever hangs the debug run until Stop; no pause-on-exceptions (the host catches every error, so "uncaught" never fires). A busy loop cannot be paused: bun answers the inspector on the JS thread, so the freeze watchdog still ends it. After the top level finishes, a debug run stays attached (for timers and callbacks) until Stop or an edit.
 - Snippets: saving from Settings rewrites `snippets.json` and drops the user's own comments (the explanatory header is rewritten). Monaco's standalone build has no `tabCompletion` (prefix + Tab without the suggestion list), so the list must be open. Snippet variables (`$TM_FILENAME`, `$CLIPBOARD` …) resolve only as far as Monaco's standalone resolvers go.

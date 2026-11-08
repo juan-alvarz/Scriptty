@@ -10,6 +10,7 @@ A desktop scratchpad for TypeScript and JavaScript. It runs your code as you typ
   - **Watch**: type an expression under Watch and press Enter. It is re-evaluated in the selected frame on every pause and step; names out of scope show "not available". Double-click an entry to edit it, × to remove it. The list is saved in settings. Watch expressions really run, so avoid ones that change state (`n++`).
 - **Runtime error markers**: thrown errors and rejections get a red squiggle on their line, with the error and stack in the hover.
 - **Scratches are plain files** in `~/Documents/Scriptty`, with folders, a file tree, tabs (drag to reorder, restored on launch) and autosave.
+- **Go to definition**: ⌘-click / Ctrl-click (or F12) a function, class or type to jump to it, also in another scratch.
 - **Quick open**: ⌘P / Ctrl+P opens a fuzzy file switcher over every scratch. ⌘P Enter switches back to the previous file.
 - **Search across scratches**: ⇧⌘F / Ctrl+Shift+F, with match case, whole word and regex toggles. Click a hit to open it.
 - **Packages**: add and remove npm packages from the Packages panel. Their types load into the editor, so imports autocomplete and type-check.
@@ -26,6 +27,7 @@ A desktop scratchpad for TypeScript and JavaScript. It runs your code as you typ
 |--------|-------|---------|
 | Run now | ⌘Enter | Ctrl+Enter |
 | Stop | ⌘. | Ctrl+. |
+| Go to definition | ⌘-click or F12 | Ctrl-click or F12 |
 | Quick open | ⌘P | Ctrl+P |
 | Search scratches | ⇧⌘F | Ctrl+Shift+F |
 | Debug / continue | F5 | F5 |
