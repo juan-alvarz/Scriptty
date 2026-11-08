@@ -9,6 +9,7 @@ import { Workspace } from './workspace'
 import { Packages } from './packages'
 import { loadSettings, sanitize, saveSettings, watchList } from './settings'
 import { appMenu, treeMenu } from './menu'
+import { moveTabShortcut } from './shortcuts'
 import { bundle } from './bundle'
 import { installedIn, missingPackages } from './missing'
 import { SnippetStore } from './snippets'
@@ -103,6 +104,13 @@ function createWindow(): void {
     }
   })
   win.once('ready-to-show', () => win?.show())
+  // Caught before the page so Monaco (or vim mode) cannot consume them; preventDefault also skips the menu accelerator.
+  win.webContents.on('before-input-event', (e, input) => {
+    const a = moveTabShortcut(input, isMac)
+    if (!a) return
+    e.preventDefault()
+    win?.webContents.send('menu', a)
+  })
   // Links (README, results) open through `open-external`; the window itself never navigates away or opens others.
   win.webContents.on('will-navigate', (e, url) => url !== win?.webContents.getURL() && e.preventDefault())
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))

@@ -1,8 +1,100 @@
 <script lang="ts">
-  type Props = { tabs: string[]; current: string; mod: string; onopen: (rel: string) => void; onclose: (rel: string) => void }
-  let { tabs, current, mod, onopen, onclose }: Props = $props()
+  import { autoScrollStep, DRAG_THRESHOLD, dropIndex, gapX, insertionIndex, isNoop } from './tabs'
+
+  type Props = {
+    tabs: string[]
+    current: string
+    mod: string
+    onopen: (rel: string) => void
+    onclose: (rel: string) => void
+    /** Drag reorder: move the tab at `from` so it ends up at `to`. */
+    onmove: (from: number, to: number) => void
+  }
+  let { tabs, current, mod, onopen, onclose, onmove }: Props = $props()
 
   let el: HTMLDivElement
+
+  // A press on a tab; it becomes a drag only after DRAG_THRESHOLD px, so clicks and middle-clicks stay as they were.
+  let press: { from: number; id: number; x0: number; x: number } | null = null
+  let dragging = $state(-1) // index of the tab being dragged
+  // Floating copy of the dragged tab: its size, where it was grabbed, and the pointer it follows (client px).
+  let ghost = $state<{ w: number; h: number; dx: number; dy: number; x: number; y: number } | null>(null)
+  let gap = $state(-1) // insertion gap under the pointer, -1 when the drop would change nothing
+  let barX = $state(0) // indicator position in the strip's scrolled content
+  let frame = 0
+  let swallowClick = false
+
+  function onpointerdown(e: PointerEvent, i: number): void {
+    if (e.button !== 0 || (e.target as Element).closest('.fx')) return
+    press = { from: i, id: e.pointerId, x0: e.clientX, x: e.clientX }
+  }
+
+  function onpointermove(e: PointerEvent): void {
+    if (!press || e.pointerId !== press.id) return
+    if (!(e.buttons & 1)) return end() // released outside the strip before the drag started
+    press.x = e.clientX
+    if (dragging < 0) {
+      if (Math.abs(press.x - press.x0) < DRAG_THRESHOLD) return
+      dragging = press.from
+      const r = el.querySelectorAll('.ftab')[press.from].getBoundingClientRect()
+      ghost = { w: r.width, h: r.height, dx: press.x0 - r.left, dy: e.clientY - r.top, x: 0, y: 0 }
+      // Capture only now: capturing on press would retarget the click away from the tab button.
+      el.setPointerCapture(press.id)
+      frame = requestAnimationFrame(scrollLoop)
+    }
+    if (ghost) {
+      ghost.x = e.clientX
+      ghost.y = e.clientY
+    }
+    track()
+  }
+
+  /** Recomputes the drop gap and indicator from the pointer and the tabs' current rects. */
+  function track(): void {
+    if (!press) return
+    const spans = [...el.querySelectorAll('.ftab')].map((t) => t.getBoundingClientRect())
+    const g = insertionIndex(press.x, spans)
+    gap = isNoop(press.from, g) ? -1 : g
+    barX = gapX(g, spans) - el.getBoundingClientRect().left + el.scrollLeft
+  }
+
+  /** Scrolls the strip while the pointer is near or past either edge. */
+  function scrollLoop(): void {
+    if (!press || dragging < 0) return
+    const step = autoScrollStep(press.x, el.getBoundingClientRect())
+    if (step) {
+      el.scrollLeft += step
+      track()
+    }
+    frame = requestAnimationFrame(scrollLoop)
+  }
+
+  function onpointerup(e: PointerEvent): void {
+    if (!press || e.pointerId !== press.id) return
+    if (dragging >= 0) {
+      if (gap >= 0) onmove(press.from, dropIndex(press.from, gap))
+      // The release can still produce a click on a tab; it must not also activate it.
+      swallowClick = true
+      setTimeout(() => (swallowClick = false))
+    }
+    end()
+  }
+
+  function end(): void {
+    cancelAnimationFrame(frame)
+    if (press && el.hasPointerCapture(press.id)) el.releasePointerCapture(press.id)
+    press = null
+    dragging = -1
+    gap = -1
+    ghost = null
+  }
+
+  const onkeydown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape' && dragging >= 0) {
+      e.preventDefault()
+      end()
+    }
+  }
 
   const nameOf = (path: string): string => path.split('/').pop() ?? path
   const parentOf = (path: string): string => path.split('/').slice(0, -1).join('/')
@@ -12,26 +104,61 @@
     dir: tabs.filter((t) => nameOf(t) === nameOf(p)).length > 1 ? parentOf(p) || '/' : ''
   })
 
+  // Keep the current tab in view when it changes or moves (keyboard reorder can push it off screen).
+  const currentIndex = $derived(tabs.indexOf(current))
   $effect(() => {
-    void current
+    void currentIndex
     el.querySelector('.ftab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   })
 </script>
 
-<div class="colhead filetabs" role="tablist" aria-label="Open files" bind:this={el}>
-  {#each tabs as t (t)}
+<div
+  class="colhead filetabs"
+  class:dragging={dragging >= 0}
+  role="tablist"
+  aria-label="Open files"
+  tabindex="-1"
+  bind:this={el}
+  {onpointermove}
+  {onpointerup}
+  onpointercancel={end}
+  onlostpointercapture={end}
+  {onkeydown}
+>
+  {#each tabs as t, i (t)}
     {@const l = labelOf(t)}
-    <div class="ftab" class:on={t === current} title={t}>
-      <button role="tab" class="fname" aria-selected={t === current} onclick={() => onopen(t)} onauxclick={(e) => e.button === 1 && onclose(t)}>
+    <div class="ftab" class:on={t === current} class:lifted={i === dragging} title={t} role="presentation" onpointerdown={(e) => onpointerdown(e, i)}>
+      <button
+        role="tab"
+        class="fname"
+        aria-selected={t === current}
+        onclick={() => swallowClick || onopen(t)}
+        onauxclick={(e) => e.button === 1 && onclose(t)}
+      >
         {l.name}{#if l.dir}<span class="fdir">{l.dir}</span>{/if}
       </button>
       <button class="fx" aria-label="Close {t}" title="Close ({mod}W)" onclick={() => onclose(t)}>×</button>
     </div>
   {/each}
+  {#if gap >= 0}<div class="drop" style="left: {barX}px" aria-hidden="true"></div>{/if}
 </div>
+{#if ghost && dragging >= 0}
+  {@const t = tabs[dragging]}
+  {@const l = labelOf(t)}
+  <div
+    class="ftab ghost"
+    class:on={t === current}
+    style="width: {ghost.w}px; height: {ghost.h}px; left: {ghost.x - ghost.dx}px; top: {ghost.y - ghost.dy}px"
+    aria-hidden="true"
+  >
+    <span class="fname">{l.name}{#if l.dir}<span class="fdir">{l.dir}</span>{/if}</span>
+    <span class="fx">×</span>
+  </div>
+{/if}
 
 <style>
   .filetabs {
+    position: relative;
     background: var(--panel);
     overflow-x: auto;
     overflow-y: hidden;
@@ -105,5 +232,42 @@
   .fx:hover {
     background: color-mix(in srgb, var(--fg) 10%, transparent);
     color: var(--fg);
+  }
+  .dragging,
+  .dragging * {
+    cursor: grabbing;
+  }
+  .ftab.lifted {
+    opacity: 0.35;
+  }
+  /* The dragged tab, following the pointer; fixed so the strip's overflow does not clip it. */
+  .ghost {
+    position: fixed;
+    z-index: 1000;
+    pointer-events: none;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-bottom: 2px solid var(--accent);
+    border-radius: 4px 4px 0 0;
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
+    opacity: 0.95;
+    cursor: grabbing;
+  }
+  .ghost .fx {
+    display: grid;
+    place-items: center;
+    opacity: 1;
+  }
+  /* Insertion indicator: sits on the gap the dragged tab would drop into. */
+  .drop {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    margin-left: -1px;
+    border-radius: 1px;
+    background: var(--accent);
+    pointer-events: none;
   }
 </style>

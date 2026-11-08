@@ -9,7 +9,7 @@ A desktop scratchpad for TypeScript and JavaScript. It runs your code as you typ
 - **Debugger**: the **Debugger** tab next to Results and Bundle. Click the editor's left margin (or press F9) to set a breakpoint; the tab shows how many are set and lists them (click to jump, × to remove, Clear all). **Start debugging** there (or F5) runs the current file with the debugger attached; it stops at breakpoints and `debugger;` statements. While paused the tab shows the call stack and variables (Local, Closure, Module) with expandable objects, and has Continue, Step Over, Step Into, Step Out and Stop. Live as-you-type runs never stop at breakpoints.
   - **Watch**: type an expression under Watch and press Enter. It is re-evaluated in the selected frame on every pause and step; names out of scope show "not available". Double-click an entry to edit it, × to remove it. The list is saved in settings. Watch expressions really run, so avoid ones that change state (`n++`).
 - **Runtime error markers**: thrown errors and rejections get a red squiggle on their line, with the error and stack in the hover.
-- **Scratches are plain files** in `~/Documents/Scriptty`, with folders, a file tree, tabs (restored on launch) and autosave.
+- **Scratches are plain files** in `~/Documents/Scriptty`, with folders, a file tree, tabs (drag to reorder, restored on launch) and autosave.
 - **Quick open**: ⌘P / Ctrl+P opens a fuzzy file switcher over every scratch. ⌘P Enter switches back to the previous file.
 - **Search across scratches**: ⇧⌘F / Ctrl+Shift+F, with match case, whole word and regex toggles. Click a hit to open it.
 - **Packages**: add and remove npm packages from the Packages panel. Their types load into the editor, so imports autocomplete and type-check.
@@ -35,6 +35,7 @@ A desktop scratchpad for TypeScript and JavaScript. It runs your code as you typ
 | Toggle sidebar | ⌘B | Ctrl+B |
 | Close tab | ⌘W | Ctrl+W |
 | Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab | Ctrl+Tab / Ctrl+Shift+Tab |
+| Move tab left / right | ⌘⇧PageUp / ⌘⇧PageDown | Ctrl+Shift+PageUp / PageDown |
 | Settings | ⌘, | Ctrl+, |
 
 ## Development

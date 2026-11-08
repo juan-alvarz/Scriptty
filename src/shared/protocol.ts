@@ -86,6 +86,8 @@ export type MenuAction =
   | 'debug-step-into'
   | 'debug-step-out'
   | 'toggle-breakpoint'
+  | 'move-tab-left'
+  | 'move-tab-right'
 
 /** Breakpoints by workspace-relative path, as 1-based editor lines. */
 export type Breakpoints = Record<string, number[]>
