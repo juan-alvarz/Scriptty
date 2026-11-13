@@ -24,6 +24,9 @@
     onopen: (n: TreeNode) => void
     /** `null` when the empty area below the tree was right-clicked. */
     oncontext: (n: TreeNode | null) => void
+    ontrash: (n: TreeNode) => void
+    /** The empty area below the tree was clicked: new items go to the root. */
+    ondeselect: () => void
     onrename: (n: TreeNode, name: string) => void
     oncancel: () => void
     ondismiss: () => void
@@ -35,10 +38,13 @@
 
 <aside class="side">
   <div class="drag traffic"><SidebarToggle hidden={false} ontoggle={p.ontoggle} /></div>
+  <!-- Clicking empty space only clears the selection, a pointer shortcut; the tree's buttons stay the keyboard path. -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
   <section
     class="scratches"
     role="group"
     aria-label={p.mode === 'files' ? 'Scratches' : 'Search'}
+    onclick={(e) => p.mode === 'files' && e.target === e.currentTarget && p.ondeselect()}
     oncontextmenu={(e) => {
       if (p.mode !== 'files') return
       e.preventDefault()
@@ -69,6 +75,7 @@
         collapsed={p.collapsed}
         onopen={p.onopen}
         oncontext={p.oncontext}
+        ontrash={p.ontrash}
         onrename={p.onrename}
         oncancel={p.oncancel}
       />

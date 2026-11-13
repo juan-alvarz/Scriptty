@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import { mkdirSync, rmSync, writeFileSync, existsSync, watchFile } from 'node:fs'
 import { writeFile, rm } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
@@ -287,6 +287,18 @@ app.whenReady().then(async () => {
   ipcMain.handle('fs:create', safe((dirRel: string, kind: 'file' | 'folder') => workspace.create(dirRel, kind)))
   ipcMain.handle('fs:rename', safe((rel: string, name: string) => workspace.rename(rel, name)))
   ipcMain.handle('fs:trash', safe((rel: string) => shell.trashItem(workspace.abs(rel))))
+  ipcMain.handle('fs:confirm-trash', async (e, name: string, folder: boolean) => {
+    const bin = isMac ? 'Trash' : 'Recycle Bin'
+    const r = await dialog.showMessageBox(BrowserWindow.fromWebContents(e.sender)!, {
+      type: 'warning',
+      message: `Move “${name}” to the ${bin}?`,
+      detail: `${folder ? 'The folder and everything in it' : 'The file'} can be restored from the ${bin}.`,
+      buttons: [`Move to ${bin}`, 'Cancel'],
+      defaultId: 0,
+      cancelId: 1
+    })
+    return r.response === 0
+  })
   ipcMain.handle('fs:reveal', safe((rel: string) => (rel ? shell.showItemInFolder(workspace.abs(rel)) : void shell.openPath(workspace.root))))
   // search() reports a bad regex itself; this catch is for a failed read (a file deleted mid-search).
   ipcMain.handle('fs:search', async (_e, query: string, o: SearchOptions): Promise<SearchResult> => {

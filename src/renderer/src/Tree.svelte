@@ -2,6 +2,7 @@
   import type { TreeNode } from '../../shared/protocol'
   import Tree from './Tree.svelte'
   import { FILE_DRAG, type FileDrag } from './splits'
+  import { mac } from './keys.svelte'
 
   type Props = {
     nodes: TreeNode[]
@@ -12,10 +13,11 @@
     collapsed: Record<string, boolean>
     onopen: (n: TreeNode) => void
     oncontext: (n: TreeNode) => void
+    ontrash: (n: TreeNode) => void
     onrename: (n: TreeNode, name: string) => void
     oncancel: () => void
   }
-  let { nodes, depth = 0, current, selected, renaming, collapsed, onopen, oncontext, onrename, oncancel }: Props = $props()
+  let { nodes, depth = 0, current, selected, renaming, collapsed, onopen, oncontext, ontrash, onrename, oncancel }: Props = $props()
 
   // Select the base name (not the extension) when a rename starts, like Finder.
   function focusName(el: HTMLInputElement): void {
@@ -29,6 +31,14 @@
     if (!e.dataTransfer) return
     e.dataTransfer.setData(FILE_DRAG, JSON.stringify({ path: n.path, from: null } satisfies FileDrag))
     e.dataTransfer.effectAllowed = 'copy'
+  }
+
+  // ⌘⌫ on macOS (as in Finder), Delete elsewhere; the app asks before trashing.
+  function itemKey(e: KeyboardEvent, n: TreeNode): void {
+    if (mac ? e.metaKey && e.key === 'Backspace' : e.key === 'Delete') {
+      e.preventDefault()
+      ontrash(n)
+    }
   }
 
   function key(e: KeyboardEvent, n: TreeNode): void {
@@ -59,6 +69,7 @@
       class:sel={selected === n.path && current !== n.path}
       style="padding-left: {8 + depth * 14}px"
       onclick={() => onopen(n)}
+      onkeydown={(e) => itemKey(e, n)}
       draggable={n.kind === 'file'}
       ondragstart={(e) => drag(e, n)}
       oncontextmenu={(e) => {
@@ -75,7 +86,7 @@
     </button>
   {/if}
   {#if n.kind === 'folder' && !collapsed[n.path] && n.children?.length}
-    <Tree nodes={n.children} depth={depth + 1} {current} {selected} {renaming} {collapsed} {onopen} {oncontext} {onrename} {oncancel} />
+    <Tree nodes={n.children} depth={depth + 1} {current} {selected} {renaming} {collapsed} {onopen} {oncontext} {ontrash} {onrename} {oncancel} />
   {/if}
 {/each}
 

@@ -538,8 +538,11 @@
     }
     if (dir) collapsed[dir] = false
     await refreshTree()
-    if (kind === 'file') await open(r.value)
-    selected = r.value
+    // A new folder is not selected, so later new items keep going next to the old selection.
+    if (kind === 'file') {
+      await open(r.value)
+      selected = r.value
+    }
     renaming = r.value
   }
 
@@ -562,7 +565,7 @@
     disposeModels(node.path)
     await refreshTree()
     refreshBps()
-    selected = r.value
+    if (selected === node.path) selected = r.value
     for (const m of moved) {
       const g = byId(m.id)
       if (!g) continue
@@ -573,6 +576,7 @@
   }
 
   async function trash(node: TreeNode): Promise<void> {
+    if (!(await api.fs.confirmTrash(node.name, node.kind === 'folder'))) return
     await flush()
     const r = await api.fs.trash(node.path)
     if (!r.ok) {
@@ -611,7 +615,8 @@
   function openNode(n: TreeNode): void {
     selected = n.path
     if (n.kind === 'folder') collapsed[n.path] = !collapsed[n.path]
-    else open(n.path)
+    // Focus stays in the tree, like Finder and VS Code, so ⌘⌫ / Delete trashes the clicked file.
+    else open(n.path, activeId, false)
   }
 
   function applyTo(ed: monaco.editor.IStandaloneCodeEditor, s: Settings): void {
@@ -781,6 +786,8 @@
       oncreate={create}
       onopen={openNode}
       oncontext={context}
+      ontrash={trash}
+      ondeselect={() => (selected = '')}
       onrename={rename}
       oncancel={() => (renaming = '')}
       ondismiss={() => (notice = '')}
