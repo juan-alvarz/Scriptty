@@ -1,0 +1,87 @@
+name: Release
+
+# Started by hand from the Actions tab: publishes the version on top of the chosen branch's
+# CHANGELOG.md as a GitHub release, Scriptty-<version>, with the macOS (Apple silicon) disk
+# image and zip, the Windows installer, the update metadata, and that version's notes.
+# A version is released only once: if Scriptty-<version> is already tagged, it fails, so add
+# a new version to CHANGELOG.md first.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # to create the tag and the release
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the version from CHANGELOG.md
+        id: read
+        run: |
+          version=$(scripts/version.sh)
+          if git ls-remote --exit-code --tags origin "refs/tags/Scriptty-$version"; then
+            echo "::error::Scriptty-$version is already released. Add a new version on top of CHANGELOG.md."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest # arm64
+            dist: dist:mac
+          - os: windows-latest # x64
+            dist: dist:win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Stamp the version into package.json
+        run: npm pkg set version=${{ needs.version.outputs.version }}
+      - run: pnpm ${{ matrix.dist }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false" # unsigned until signing is set up
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest*.yml
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          notes="$(scripts/version.sh --notes)
+
+          ### Install
+
+          - **macOS (Apple silicon):** download **Scriptty-$VERSION-arm64.dmg**, open it and drag Scriptty into Applications. The app isn't signed yet: the first time you open it, go to System Settings → Privacy & Security, scroll down, and click **Open Anyway**.
+          - **Windows:** download **Scriptty-Setup-$VERSION.exe** and run it. If SmartScreen warns, click **More info** → **Run anyway**."
+          gh release create "Scriptty-$VERSION" assets/* --target "$GITHUB_SHA" --title "Scriptty $VERSION" --notes "$notes"

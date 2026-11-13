@@ -12,7 +12,8 @@
     "test": "vitest run",
     "dist:mac": "electron-vite build && electron-builder --mac",
     "dist:win": "electron-vite build && electron-builder --win",
-    "icons": "sh scripts/icons.sh"
+    "icons": "sh scripts/icons.sh",
+    "install:local": "sh scripts/install-local.sh"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -33,6 +33,8 @@ win:
       to: bin/bun.exe
   # azureSignOptions: add once Azure Trusted Signing is set up
 nsis:
+  # No spaces: GitHub renames them in asset names, which would break latest.yml.
+  artifactName: ${productName}-Setup-${version}.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
